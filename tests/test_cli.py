@@ -333,6 +333,120 @@ def _apply_args(
     ]
 
 
+def test_cli_export_zip_delta(
+    fake_sd: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    write_package3(fake_sd, ams=(1, 11, 2, 0))
+    cache_dir = tmp_path / "cache"
+    _populate_plan_cache(cache_dir)
+    output = tmp_path / "update.zip"
+
+    result = main(
+        [
+            "export",
+            "--sd",
+            str(fake_sd),
+            "--components",
+            "atmosphere",
+            "--offline",
+            "--cache-dir",
+            str(cache_dir),
+            "--no-payloads",
+            "--output",
+            str(output),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert "Paquete exportado:" in captured.out
+    with zipfile.ZipFile(output) as archive:
+        assert archive.namelist() == [
+            "atmosphere/package3",
+            "switch/daybreak.nro",
+            "manifest.json",
+            "LEEME.txt",
+        ]
+        assert archive.read("atmosphere/package3") == b"nuevo package3"
+        manifest = json.loads(archive.read("manifest.json"))
+        assert manifest["package_type"] == "delta"
+    assert not (fake_sd / "switch/daybreak.nro").exists()
+    assert (fake_sd / "atmosphere/package3").read_bytes() != b"nuevo package3"
+
+
+def test_cli_export_folder_full_with_reboot_payload(
+    fake_sd: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    write_package3(fake_sd, ams=(1, 11, 2, 0))
+    cache_dir = tmp_path / "cache"
+    _populate_plan_cache(cache_dir)
+    output = tmp_path / "package"
+
+    result = main(
+        [
+            "export",
+            "--sd",
+            str(fake_sd),
+            "--components",
+            "atmosphere",
+            "--offline",
+            "--cache-dir",
+            str(cache_dir),
+            "--no-payloads",
+            "--allow-reboot-payload",
+            "--format",
+            "folder",
+            "--kind",
+            "full",
+            "--output",
+            str(output),
+        ]
+    )
+    capsys.readouterr()
+
+    assert result == 0
+    assert (output / "atmosphere/package3").read_bytes() == b"nuevo package3"
+    assert (output / "atmosphere/reboot_payload.bin").read_bytes() == b"fusee desde el zip"
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["package_type"] == "full"
+    assert not (fake_sd / "atmosphere/reboot_payload.bin").exists()
+
+
+def test_cli_export_rejects_existing_output(
+    fake_sd: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    write_package3(fake_sd, ams=(1, 11, 2, 0))
+    cache_dir = tmp_path / "cache"
+    _populate_plan_cache(cache_dir)
+    output = tmp_path / "update.zip"
+    output.write_bytes(b"existing")
+
+    result = main(
+        [
+            "export",
+            "--sd",
+            str(fake_sd),
+            "--components",
+            "atmosphere",
+            "--offline",
+            "--cache-dir",
+            str(cache_dir),
+            "--output",
+            str(output),
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert result == 2
+    assert "ya existe" in captured.err
+
+
 def test_cli_apply_offline_end_to_end(
     fake_sd: Path,
     tmp_path: Path,

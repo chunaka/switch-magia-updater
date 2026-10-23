@@ -16,6 +16,7 @@ from magia_updater.core.components import UPDATABLE_COMPONENTS
 from magia_updater.core.detect import component_names, detect_sd
 from magia_updater.core.download import AssetDownloader, OfflineDownloadTransport
 from magia_updater.core.errors import MagiaError
+from magia_updater.core.export import ExportFormat, ExportKind, export_plan
 from magia_updater.core.github import GitHubClient
 from magia_updater.core.installer import ApplyOptions, UpdateInstaller
 from magia_updater.core.models import (
@@ -350,6 +351,29 @@ def _build_parser() -> argparse.ArgumentParser:
         default=3,
         help="Número de backups locales a conservar (default: 3).",
     )
+
+    export_parser = subparsers.add_parser(
+        "export",
+        help="Crea un paquete ZIP o una carpeta para actualizar la SD manualmente.",
+    )
+    _add_update_arguments(export_parser, include_json=False)
+    export_parser.add_argument(
+        "--format",
+        choices=[item.value for item in ExportFormat],
+        default=ExportFormat.ZIP.value,
+        help="Formato del paquete (default: zip).",
+    )
+    export_parser.add_argument(
+        "--kind",
+        choices=[item.value for item in ExportKind],
+        default=ExportKind.DELTA.value,
+        help="Paquete delta (solo cambios) o full (también archivos idénticos).",
+    )
+    export_parser.add_argument(
+        "--output",
+        required=True,
+        help="Ruta del ZIP o de la carpeta a crear. No debe existir.",
+    )
     return parser
 
 
@@ -529,6 +553,58 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Operaciones aplicadas: {len(result.applied)}")
         for warning in result.warnings:
             print(f"Aviso: {warning}")
+        return 0
+
+    if args.command == "export":
+        try:
+            snapshot = detect_sd(args.sd)
+            components = _parse_components(args.components)
+        except (MagiaError, ValueError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+        if not snapshot.is_switch_sd:
+            print("Error: la carpeta no parece una SD de Switch.", file=sys.stderr)
+            return 2
+
+        output = Path(args.output)
+        if output.exists():
+            print(f"Error: el destino ya existe: {output}", file=sys.stderr)
+            return 2
+
+        try:
+            checks, plan = _build_plan(
+                snapshot,
+                components,
+                cache=CacheStore(args.cache_dir),
+                offline=args.offline,
+                refresh=args.refresh,
+                no_payloads=args.no_payloads,
+                allow_reboot_payload=args.allow_reboot_payload,
+                allow_root_payload=args.allow_root_payload,
+            )
+        except MagiaError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+
+        _print_checks(checks)
+        print()
+        _print_plan(plan)
+
+        try:
+            exported = export_plan(
+                plan,
+                output,
+                kind=ExportKind(args.kind),
+                format=ExportFormat(args.format),
+            )
+        except (MagiaError, OSError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+
+        print(f"Paquete exportado: {exported.path}")
+        print(f"Tipo: {exported.kind.value}")
+        print(f"Archivos: {exported.file_count}")
+        print(f"Tamaño: {exported.total_size} bytes")
         return 0
 
     parser.error(f"Comando no implementado: {args.command}")
