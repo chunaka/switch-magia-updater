@@ -71,6 +71,10 @@ de solo lectura; no es obligatorio.
 - [ ] Fase 6: GUI PySide6, exportación, backups y ajustes.
 - [ ] Fase 7: compatibilidad de firmware, empaquetado y prueba real.
 
+## Contribución
+
+Las convenciones de ramas, commits y verificación están en [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Licencia
 
 MIT.
