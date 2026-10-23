@@ -11,8 +11,10 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from magia_updater.core.settings import AppSettings  # noqa: E402
+from magia_updater.gui.backups_dialog import BackupsDialog  # noqa: E402
 from magia_updater.gui.export_dialog import ExportDialog  # noqa: E402
 from magia_updater.gui.main_window import MainWindow  # noqa: E402
+from magia_updater.gui.service import GuiService  # noqa: E402
 from magia_updater.gui.settings_dialog import SettingsDialog  # noqa: E402
 
 
@@ -71,4 +73,23 @@ def test_export_dialog_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path)
     assert dialog.kind().value == "delta"
     assert dialog.format().value == "zip"
     assert dialog.output().name.endswith(".zip")
+    dialog.close()
+
+
+def test_backups_dialog_constructs(
+    fake_sd: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    QApplication.instance() or QApplication([])
+    settings = AppSettings(
+        cache_dir=tmp_path / "cache",
+        backup_dir=tmp_path / "backups",
+        state_dir=tmp_path / "state",
+    )
+    service = GuiService(settings)
+    snapshot = service.detect(fake_sd)
+
+    dialog = BackupsDialog(service, snapshot)
+
+    assert dialog.table.rowCount() == 0
     dialog.close()
