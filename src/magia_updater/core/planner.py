@@ -111,6 +111,16 @@ def _operation_for_source(
     )
 
 
+def _is_root_payload_file(relative_path: str) -> bool:
+    if "/" in relative_path:
+        return False
+    return (
+        relative_path == "payload.bin"
+        or relative_path == "fusee.bin"
+        or (relative_path.startswith("hekate_ctcaer_") and relative_path.endswith(".bin"))
+    )
+
+
 def _root_payload_source(prepared: PreparedComponent) -> Path | None:
     for name, path in prepared.payloads.items():
         if name == "fusee.bin":
@@ -140,6 +150,15 @@ def plan_component(
         if not source.is_file():
             continue
         relative = source.relative_to(prepared.archive_root).as_posix()
+
+        if _is_root_payload_file(relative):
+            operations[relative] = FileOperation(
+                relative_path=relative,
+                kind=OperationKind.SKIP,
+                size=source.stat().st_size,
+                reason="payload conocido; se instala en /bootloader/payloads",
+            )
+            continue
 
         if relative == "atmosphere/reboot_payload.bin":
             reboot_seen = True

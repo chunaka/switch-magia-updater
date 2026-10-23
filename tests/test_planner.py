@@ -196,6 +196,7 @@ def test_hekate_preserves_configs_and_places_payload(tmp_path: Path) -> None:
             "bootloader/hekate_ipl.ini": b"config de usuario",
             "bootloader/ini/entrada.ini": b"entrada",
             "bootloader/payloads/viejo.bin": b"payload de usuario",
+            "hekate_ctcaer_6.5.4.bin": b"hekate root zip",
         },
         {"hekate_ctcaer_6.5.4.bin": b"hekate nuevo"},
     )
@@ -205,6 +206,7 @@ def test_hekate_preserves_configs_and_places_payload(tmp_path: Path) -> None:
     assert op_for(plan, "bootloader/sys/nyx.bin").kind == OperationKind.CREATE
     assert op_for(plan, "bootloader/update.bin").kind == OperationKind.CREATE
     assert op_for(plan, "bootloader/payloads/hekate_ctcaer_6.5.4.bin").kind == OperationKind.CREATE
+    assert op_for(plan, "hekate_ctcaer_6.5.4.bin").kind == OperationKind.SKIP
     assert op_for(plan, "bootloader/hekate_ipl.ini").kind == OperationKind.SKIP
     assert op_for(plan, "bootloader/ini/entrada.ini").kind == OperationKind.SKIP
     assert op_for(plan, "bootloader/payloads/viejo.bin").kind == OperationKind.SKIP
