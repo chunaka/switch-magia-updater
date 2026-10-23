@@ -3,9 +3,9 @@
 Actualizador seguro de CFW para Nintendo Switch. Gestiona **Atmosphère**, **Hekate** y
 **sys-patch** sin tocar configuraciones, sysmodules ni payloads desconocidos.
 
-> Estado: **Fases 1 y 2 completadas**. Todavía no escribe en la SD; detecta el estado offline,
-> consulta GitHub, selecciona assets y compara versiones/digests. La descarga y la instalación
-> llegan en la Fase 3.
+> Estado: **Fases 1, 2 y 3 completadas**. Todavía no escribe en la SD: detecta el estado offline,
+> consulta GitHub, descarga y valida los assets, y calcula un plan de actualización. La instalación
+> atómica y el rollback llegan en la Fase 4.
 
 ## Requisitos
 
@@ -33,15 +33,32 @@ magia check --sd E:\
 magia check --sd E:\ --json
 magia check --sd E:\ --offline
 magia check --sd E:\ --refresh
+
+magia plan --sd E:\
+magia plan --sd E:\ --json
+magia plan --sd E:\ --offline
+magia plan --sd E:\ --allow-reboot-payload
+magia plan --sd E:\ --allow-root-payload
+magia plan --sd E:\ --no-payloads
 ```
 
 `detect` es **offline**: no descarga nada y no modifica la SD. `check` consulta la última
 release estable de cada repositorio, usa ETag/caché y compara versiones y digests SHA-256.
 Si no hay red, cae a la caché local.
 
-La caché se guarda por defecto en `%LOCALAPPDATA%\MagiaUpdater\cache`. Para evitar el límite
-de la API de GitHub se puede definir `MAGIA_GITHUB_TOKEN` (o `GITHUB_TOKEN`) con un token
-de solo lectura; no es obligatorio.
+`plan` descarga los ZIP y payloads que falten, los verifica contra el tamaño y el SHA-256
+publicados, extrae los ZIP en la caché y calcula las operaciones. **No escribe en la SD.**
+Con `--offline` solo usa releases y assets ya cacheados; si falta algo, falla sin tocar la red.
+
+Por defecto el plan preserva `/atmosphere/reboot_payload.bin` y `/payload.bin`. Para permitir
+su actualización hay que usar `--allow-reboot-payload` o `--allow-root-payload`. Los payloads
+conocidos (`fusee.bin` y `hekate_ctcaer_<versión>.bin`) se colocan en `/bootloader/payloads`;
+`--no-payloads` desactiva esa parte del plan.
+
+La caché se guarda por defecto en `%LOCALAPPDATA%\MagiaUpdater\cache`. Incluye las releases,
+los assets descargados y los ZIP ya extraídos, identificados por su SHA-256. Para evitar el
+límite de la API de GitHub se puede definir `MAGIA_GITHUB_TOKEN` (o `GITHUB_TOKEN`) con un
+token de solo lectura; no es obligatorio.
 
 ## Qué detecta
 
@@ -57,15 +74,21 @@ de solo lectura; no es obligatorio.
 
 - No se toca `/emuMMC` ni `/Nintendo`.
 - No se modifican `/atmosphere/config`, `/atmosphere/contents` (salvo el TID de sys-patch),
-  `/bootloader/hekate_ipl.ini`, `/bootloader/ini`, `/bootloader/payloads` ni `/switch`.
-- Los payloads desconocidos se preservan y se preguntan antes de reemplazarlos.
-- Las escrituras futuras serán atómicas, con backup y rollback.
+  `/atmosphere/hosts`, backups, errores fatales, `/bootloader/hekate_ipl.ini`,
+  `/bootloader/ini`, `/bootloader/payloads` ni `/config`.
+- En `/switch` se preservan los homebrews del usuario; solo se actualizan las herramientas
+  oficiales de Atmosphère (`daybreak.nro`, `haze.nro`, `reboot_to_payload.nro`) y el overlay
+  de sys-patch.
+- Los payloads desconocidos se preservan y se pide confirmación antes de reemplazarlos.
+- La extracción de ZIP rechaza traversal, rutas absolutas o de Windows, enlaces simbólicos,
+  entradas cifradas, duplicados y archivos que excedan los límites.
+- Las escrituras en la SD serán atómicas, con backup y rollback en la Fase 4.
 
 ## Fases
 
 - [x] Fase 1: estructura, modelos, registro de componentes, detección offline y tests.
 - [x] Fase 2: cliente GitHub, caché, selección de assets y comparación de digests.
-- [ ] Fase 3: descarga, validación de ZIP, hashes y planner.
+- [x] Fase 3: descarga verificada, extracción segura de ZIP y planner de actualización.
 - [ ] Fase 4: backup, instalación atómica, rollback y estado.
 - [ ] Fase 5: CLI end-to-end y pruebas con SD falsa.
 - [ ] Fase 6: GUI PySide6, exportación, backups y ajustes.
