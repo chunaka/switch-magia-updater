@@ -249,6 +249,66 @@ class ComponentCheck:
         return self.status == CheckStatus.UPDATE_AVAILABLE
 
 
+class OperationKind(StrEnum):
+    CREATE = "create"
+    REPLACE = "replace"
+    KEEP = "keep"
+    SKIP = "skip"
+    CONFLICT = "conflict"
+
+
+@dataclass(frozen=True)
+class FileOperation:
+    relative_path: str
+    kind: OperationKind
+    source: Path | None = None
+    size: int | None = None
+    sha256: str | None = None
+    reason: str = ""
+    requires_confirmation: bool = False
+
+
+@dataclass(frozen=True)
+class ComponentPlan:
+    component: ComponentId
+    release: ReleaseInfo | None
+    operations: tuple[FileOperation, ...]
+    warnings: tuple[str, ...] = ()
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return any(operation.requires_confirmation for operation in self.operations)
+
+    @property
+    def changes(self) -> tuple[FileOperation, ...]:
+        return tuple(
+            operation
+            for operation in self.operations
+            if operation.kind in {OperationKind.CREATE, OperationKind.REPLACE}
+        )
+
+
+@dataclass(frozen=True)
+class UpdatePlan:
+    components: tuple[ComponentPlan, ...]
+    warnings: tuple[str, ...] = ()
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return any(plan.requires_confirmation for plan in self.components)
+
+    @property
+    def operations(self) -> tuple[FileOperation, ...]:
+        return tuple(operation for plan in self.components for operation in plan.operations)
+
+
+@dataclass(frozen=True)
+class PayloadPolicy:
+    install_payloads: bool = True
+    update_reboot_payload: bool = False
+    update_root_payload: bool = False
+
+
 @dataclass(frozen=True)
 class SdSnapshot:
     """Fotografía offline de una SD. No implica que se haya escrito nada."""
@@ -371,6 +431,43 @@ def component_check_to_dict(check: ComponentCheck) -> dict[str, Any]:
         "warnings": list(check.warnings),
         "release": release_to_dict(check.release) if check.release else None,
         "selection": selection,
+    }
+
+
+def operation_to_dict(operation: FileOperation) -> dict[str, Any]:
+    return {
+        "path": operation.relative_path,
+        "kind": operation.kind.value,
+        "source": str(operation.source) if operation.source else None,
+        "size": operation.size,
+        "sha256": operation.sha256,
+        "reason": operation.reason,
+        "requires_confirmation": operation.requires_confirmation,
+    }
+
+
+def component_plan_to_dict(plan: ComponentPlan) -> dict[str, Any]:
+    return {
+        "component": plan.component.value,
+        "release": (
+            {
+                "tag": plan.release.tag,
+                "version": str(plan.release.version),
+            }
+            if plan.release is not None
+            else None
+        ),
+        "requires_confirmation": plan.requires_confirmation,
+        "warnings": list(plan.warnings),
+        "operations": [operation_to_dict(operation) for operation in plan.operations],
+    }
+
+
+def update_plan_to_dict(plan: UpdatePlan) -> dict[str, Any]:
+    return {
+        "requires_confirmation": plan.requires_confirmation,
+        "warnings": list(plan.warnings),
+        "components": [component_plan_to_dict(component) for component in plan.components],
     }
 
 
