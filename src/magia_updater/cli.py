@@ -13,6 +13,7 @@ from magia_updater.core.cache import CacheStore
 from magia_updater.core.check import ReleaseService
 from magia_updater.core.components import UPDATABLE_COMPONENTS
 from magia_updater.core.detect import component_names, detect_sd
+from magia_updater.core.download import AssetDownloader, OfflineDownloadTransport
 from magia_updater.core.errors import MagiaError
 from magia_updater.core.github import GitHubClient
 from magia_updater.core.models import (
@@ -20,10 +21,16 @@ from magia_updater.core.models import (
     ComponentCheck,
     ComponentId,
     InstalledComponent,
+    OperationKind,
+    PayloadPolicy,
     SdSnapshot,
+    UpdatePlan,
     component_check_to_dict,
     snapshot_to_dict,
+    update_plan_to_dict,
 )
+from magia_updater.core.planner import plan_update
+from magia_updater.core.prepare import UpdatePreparer
 
 STATUS_LABELS = {
     CheckStatus.UPDATE_AVAILABLE: "actualización disponible",
@@ -109,6 +116,38 @@ def _print_checks(checks: Sequence[ComponentCheck]) -> None:
             print(f"  Aviso: {warning}")
 
 
+def _print_plan(plan: UpdatePlan) -> None:
+    names = component_names()
+    if not plan.components:
+        print("No hay actualizaciones para planificar.")
+        return
+
+    labels = {
+        OperationKind.CREATE: "crear",
+        OperationKind.REPLACE: "reemplazar",
+        OperationKind.KEEP: "mantener",
+        OperationKind.SKIP: "omitir",
+        OperationKind.CONFLICT: "conflicto",
+    }
+    for component_plan in plan.components:
+        release = (
+            component_plan.release.tag if component_plan.release is not None else "desconocida"
+        )
+        print(f"{names[component_plan.component]} -> {release}")
+        for operation in component_plan.operations:
+            marker = " [confirmar]" if operation.requires_confirmation else ""
+            reason = f" ({operation.reason})" if operation.reason else ""
+            print(f"  {labels[operation.kind]:<12} {operation.relative_path}{marker}{reason}")
+        for warning in component_plan.warnings:
+            print(f"  Aviso: {warning}")
+        print()
+
+    if plan.warnings:
+        print("Advertencias del plan:")
+        for warning in plan.warnings:
+            print(f"  - {warning}")
+
+
 def _parse_components(raw: str) -> tuple[ComponentId, ...]:
     valid = {component.value: component for component in UPDATABLE_COMPONENTS}
     result: list[ComponentId] = []
@@ -168,6 +207,48 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Directorio de caché (default: %%LOCALAPPDATA%%\\MagiaUpdater\\cache).",
     )
     check_parser.add_argument("--json", action="store_true", help="Salida JSON para scripts.")
+
+    plan_parser = subparsers.add_parser(
+        "plan",
+        help="Descarga lo necesario y calcula un plan sin escribir en la SD.",
+    )
+    plan_parser.add_argument("--sd", required=True, help="Ruta raíz de la SD (ej. E:\\).")
+    plan_parser.add_argument(
+        "--components",
+        default="atmosphere,hekate,sys-patch",
+        help="Lista separada por comas (default: atmosphere,hekate,sys-patch).",
+    )
+    plan_parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="No consulta GitHub ni descarga; usa solo la caché local.",
+    )
+    plan_parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Ignora la caché fresca y fuerza la consulta a GitHub.",
+    )
+    plan_parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Directorio de caché (default: %%LOCALAPPDATA%%\\MagiaUpdater\\cache).",
+    )
+    plan_parser.add_argument(
+        "--allow-reboot-payload",
+        action="store_true",
+        help="Permite actualizar /atmosphere/reboot_payload.bin.",
+    )
+    plan_parser.add_argument(
+        "--allow-root-payload",
+        action="store_true",
+        help="Permite crear o actualizar /payload.bin con un payload conocido.",
+    )
+    plan_parser.add_argument(
+        "--no-payloads",
+        action="store_true",
+        help="No instala fusee.bin ni hekate_ctcaer_*.bin en /bootloader/payloads.",
+    )
+    plan_parser.add_argument("--json", action="store_true", help="Salida JSON para scripts.")
     return parser
 
 
@@ -221,6 +302,64 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
             _print_checks(checks)
+        return 1 if any(check.status == CheckStatus.UNKNOWN for check in checks) else 0
+
+    if args.command == "plan":
+        try:
+            snapshot = detect_sd(args.sd)
+            components = _parse_components(args.components)
+        except (MagiaError, ValueError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+        if not snapshot.is_switch_sd:
+            print("Error: la carpeta no parece una SD de Switch.", file=sys.stderr)
+            return 2
+
+        token = os.environ.get("MAGIA_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        cache = CacheStore(args.cache_dir)
+        service = ReleaseService(GitHubClient(token=token), cache)
+        try:
+            checks = service.check_all(
+                snapshot,
+                components=components,
+                offline=args.offline,
+                force=args.refresh,
+            )
+            candidates = tuple(
+                check
+                for check in checks
+                if check.status in {CheckStatus.UPDATE_AVAILABLE, CheckStatus.NOT_INSTALLED}
+            )
+            if candidates:
+                transport = OfflineDownloadTransport() if args.offline else None
+                downloader = AssetDownloader(cache, transport=transport)
+                preparer = UpdatePreparer(downloader, cache)
+                prepared = preparer.prepare_all(candidates)
+                policy = PayloadPolicy(
+                    install_payloads=not args.no_payloads,
+                    update_reboot_payload=args.allow_reboot_payload,
+                    update_root_payload=args.allow_root_payload,
+                )
+                plan = plan_update(snapshot, prepared, policy)
+            else:
+                plan = UpdatePlan(components=(), warnings=())
+        except MagiaError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+
+        if args.json:
+            payload = {
+                "root": str(snapshot.root),
+                "checks": {
+                    check.component.value: component_check_to_dict(check) for check in checks
+                },
+                "plan": update_plan_to_dict(plan),
+            }
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            _print_checks(checks)
+            print()
+            _print_plan(plan)
         return 1 if any(check.status == CheckStatus.UNKNOWN for check in checks) else 0
 
     parser.error(f"Comando no implementado: {args.command}")
