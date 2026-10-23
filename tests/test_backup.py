@@ -135,6 +135,59 @@ def test_find_incomplete_uses_journal_status(tmp_path: Path) -> None:
     assert manager.find_incomplete("sd-1") == ()
 
 
+def test_session_size_and_delete_session(tmp_path: Path) -> None:
+    sd_root = tmp_path / "sd"
+    write_file(sd_root, "atmosphere/package3", b"viejo")
+    manager = make_manager(tmp_path)
+    session = manager.create_session(
+        sd_root,
+        "sd-1",
+        [replace_op("atmosphere/package3")],
+        timestamp="20260101T120000000000Z",
+    )
+
+    assert manager.session_size(session) > 0
+    manager.delete_session(session)
+
+    assert not session.backup_dir.exists()
+    assert manager.list_sessions("sd-1") == ()
+
+
+def test_delete_session_rejects_backup_outside_manager(tmp_path: Path) -> None:
+    manager = make_manager(tmp_path)
+    other_root = tmp_path / "other"
+    other_manager = BackupManager(other_root, now=lambda: datetime(2026, 1, 1, tzinfo=UTC))
+    sd_root = tmp_path / "sd"
+    sd_root.mkdir()
+    session = other_manager.create_session(
+        sd_root,
+        "sd-1",
+        [create_op("hbmenu.nro")],
+        timestamp="20260101T120000000000Z",
+    )
+
+    with pytest.raises(BackupError, match="no pertenece"):
+        manager.delete_session(session)
+    assert session.backup_dir.is_dir()
+
+
+def test_delete_session_rejects_pending_transaction(tmp_path: Path) -> None:
+    manager = make_manager(tmp_path)
+    sd_root = tmp_path / "sd"
+    sd_root.mkdir()
+    session = manager.create_session(
+        sd_root,
+        "sd-1",
+        [create_op("hbmenu.nro")],
+        timestamp="20260101T120000000000Z",
+    )
+    manager.write_journal(session, status="applying", pending="hbmenu.nro")
+
+    with pytest.raises(BackupError, match="transacción pendiente"):
+        manager.delete_session(session)
+    assert session.backup_dir.is_dir()
+
+
 def test_prune_keeps_newest_and_ignores_unknown_dirs(tmp_path: Path) -> None:
     base = tmp_path / "backups/sd-1"
     for name in ("20260101T000000000000Z", "20260102T000000000000Z", "20260103T000000000000Z"):

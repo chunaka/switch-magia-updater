@@ -283,6 +283,36 @@ class BackupManager:
                 incomplete.append(session)
         return tuple(incomplete)
 
+    def _local_session_dir(self, session: BackupSession) -> Path:
+        _validate_key(session.sd_id, name="sd_id")
+        backup_dir = session.backup_dir.resolve()
+        base = (self.root / session.sd_id).resolve()
+        if backup_dir.parent != base or not (backup_dir / "manifest.json").is_file():
+            raise BackupError(f"El backup no pertenece a este gestor: {backup_dir}")
+        return backup_dir
+
+    def session_size(self, session: BackupSession) -> int:
+        backup_dir = self._local_session_dir(session)
+        total = 0
+        for path in backup_dir.rglob("*"):
+            if path.is_file() and not path.is_symlink():
+                total += path.stat().st_size
+        return total
+
+    def delete_session(self, session: BackupSession) -> None:
+        backup_dir = self._local_session_dir(session)
+        if session.journal_path.is_file():
+            try:
+                status = self.read_journal(session).get("status")
+            except BackupError:
+                status = None
+            if status == "applying":
+                raise BackupError("No se puede eliminar un backup con una transacción pendiente.")
+        try:
+            shutil.rmtree(backup_dir)
+        except OSError as exc:
+            raise BackupError(f"No se pudo eliminar el backup: {exc}") from exc
+
     def mirror_to_sd(self, session: BackupSession, sd_root: Path) -> Path:
         sd_root = sd_root.resolve()
         target = sd_root / ".magia" / "backups" / session.backup_dir.name
