@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import sys
 import zipfile
 from pathlib import Path
 
@@ -11,10 +12,14 @@ import pytest
 from conftest import write_package3
 from helpers import load_release
 from magia_updater.cli import main
+from magia_updater.core.backup import BackupManager
 from magia_updater.core.cache import CacheStore
+from magia_updater.core.identity import get_sd_identity
 from magia_updater.core.models import (
     AssetInfo,
     ComponentId,
+    FileOperation,
+    OperationKind,
     ReleaseInfo,
     Version,
 )
@@ -296,3 +301,213 @@ def test_cli_check_not_switch_sd(
 
     assert result == 2
     assert "no parece una SD" in captured.err
+
+
+class _TtyInput(io.StringIO):
+    def isatty(self) -> bool:
+        return True
+
+
+def _apply_args(
+    fake_sd: Path,
+    cache_dir: Path,
+    backup_dir: Path,
+    state_dir: Path,
+    *extra: str,
+) -> list[str]:
+    return [
+        "apply",
+        "--sd",
+        str(fake_sd),
+        "--components",
+        "atmosphere",
+        "--offline",
+        "--cache-dir",
+        str(cache_dir),
+        "--no-payloads",
+        "--backup-dir",
+        str(backup_dir),
+        "--state-dir",
+        str(state_dir),
+        *extra,
+    ]
+
+
+def test_cli_apply_offline_end_to_end(
+    fake_sd: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    write_package3(fake_sd, ams=(1, 11, 2, 0))
+    cache_dir = tmp_path / "cache"
+    _populate_plan_cache(cache_dir)
+    backup_dir = tmp_path / "backups"
+    state_dir = tmp_path / "state"
+
+    result = main(
+        _apply_args(
+            fake_sd,
+            cache_dir,
+            backup_dir,
+            state_dir,
+            "--yes",
+            "--mirror-backup",
+        )
+    )
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert "Actualización aplicada." in captured.out
+    assert "Backup:" in captured.out
+    assert "Estado:" in captured.out
+    assert (fake_sd / "atmosphere/package3").read_bytes() == b"nuevo package3"
+    assert (fake_sd / "switch/daybreak.nro").read_bytes() == b"daybreak"
+    assert not (fake_sd / "atmosphere/reboot_payload.bin").exists()
+    assert len(list(backup_dir.rglob("manifest.json"))) == 1
+    assert len(list(state_dir.glob("*.json"))) == 1
+    assert (fake_sd / ".magia/backups").is_dir()
+
+
+def test_cli_apply_requires_yes_when_noninteractive(
+    fake_sd: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    write_package3(fake_sd, ams=(1, 11, 2, 0))
+    cache_dir = tmp_path / "cache"
+    _populate_plan_cache(cache_dir)
+    backup_dir = tmp_path / "backups"
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+
+    result = main(_apply_args(fake_sd, cache_dir, backup_dir, tmp_path / "state"))
+    captured = capsys.readouterr()
+
+    assert result == 2
+    assert "--yes" in captured.err
+    assert not backup_dir.exists()
+    assert (fake_sd / "atmosphere/package3").read_bytes() != b"nuevo package3"
+
+
+def test_cli_apply_prompts_and_accepts(
+    fake_sd: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    write_package3(fake_sd, ams=(1, 11, 2, 0))
+    cache_dir = tmp_path / "cache"
+    _populate_plan_cache(cache_dir)
+    backup_dir = tmp_path / "backups"
+    monkeypatch.setattr(sys, "stdin", _TtyInput("s\n"))
+
+    result = main(_apply_args(fake_sd, cache_dir, backup_dir, tmp_path / "state"))
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert "¿Aplicar estos cambios?" in captured.out
+    assert (fake_sd / "atmosphere/package3").read_bytes() == b"nuevo package3"
+
+
+def test_cli_apply_prompts_and_cancels(
+    fake_sd: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    write_package3(fake_sd, ams=(1, 11, 2, 0))
+    cache_dir = tmp_path / "cache"
+    _populate_plan_cache(cache_dir)
+    backup_dir = tmp_path / "backups"
+    monkeypatch.setattr(sys, "stdin", _TtyInput("n\n"))
+
+    result = main(_apply_args(fake_sd, cache_dir, backup_dir, tmp_path / "state"))
+    captured = capsys.readouterr()
+
+    assert result == 1
+    assert "Aplicación cancelada." in captured.out
+    assert not backup_dir.exists()
+    assert (fake_sd / "atmosphere/package3").read_bytes() != b"nuevo package3"
+
+
+def test_cli_apply_allows_protected_payloads(
+    fake_sd: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    write_package3(fake_sd, ams=(1, 11, 2, 0))
+    cache_dir = tmp_path / "cache"
+    _populate_plan_cache(cache_dir)
+
+    result = main(
+        _apply_args(
+            fake_sd,
+            cache_dir,
+            tmp_path / "backups",
+            tmp_path / "state",
+            "--yes",
+            "--allow-reboot-payload",
+            "--allow-root-payload",
+        )
+    )
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert "Actualización aplicada." in captured.out
+    assert (fake_sd / "atmosphere/reboot_payload.bin").read_bytes() == b"fusee desde el zip"
+    assert (fake_sd / "payload.bin").read_bytes() == b"fusee"
+
+
+def test_cli_apply_no_changes(
+    fake_sd: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cache_dir = tmp_path / "cache"
+    _populate_plan_cache(cache_dir)
+    backup_dir = tmp_path / "backups"
+
+    result = main(_apply_args(fake_sd, cache_dir, backup_dir, tmp_path / "state", "--yes"))
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert "No hay cambios que aplicar." in captured.out
+    assert not backup_dir.exists()
+
+
+def test_cli_apply_recovers_incomplete_transaction(
+    fake_sd: Path,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    write_package3(fake_sd, ams=(1, 11, 2, 0))
+    cache_dir = tmp_path / "cache"
+    _populate_plan_cache(cache_dir)
+    backup_dir = tmp_path / "backups"
+    state_dir = tmp_path / "state"
+    manager = BackupManager(backup_dir)
+    sd_id = get_sd_identity(fake_sd).key
+    session = manager.create_session(
+        fake_sd,
+        sd_id,
+        [
+            FileOperation(
+                relative_path="atmosphere/package3",
+                kind=OperationKind.REPLACE,
+            )
+        ],
+    )
+    (fake_sd / "atmosphere/package3").write_bytes(b"parcial")
+    manager.write_journal(
+        session,
+        status="applying",
+        pending="atmosphere/package3",
+    )
+
+    result = main(_apply_args(fake_sd, cache_dir, backup_dir, state_dir, "--yes"))
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert "Transacciones incompletas recuperadas:" in captured.out
+    assert (fake_sd / "atmosphere/package3").read_bytes() == b"nuevo package3"
+    assert manager.read_journal(session)["status"] == "rolled_back"
