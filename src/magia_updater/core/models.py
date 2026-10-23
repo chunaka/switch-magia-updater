@@ -302,6 +302,19 @@ class UpdatePlan:
     def operations(self) -> tuple[FileOperation, ...]:
         return tuple(operation for plan in self.components for operation in plan.operations)
 
+    @property
+    def changes(self) -> tuple[FileOperation, ...]:
+        return tuple(operation for plan in self.components for operation in plan.changes)
+
+    @property
+    def conflicts(self) -> tuple[FileOperation, ...]:
+        return tuple(
+            operation
+            for plan in self.components
+            for operation in plan.operations
+            if operation.kind == OperationKind.CONFLICT
+        )
+
 
 @dataclass(frozen=True)
 class PayloadPolicy:

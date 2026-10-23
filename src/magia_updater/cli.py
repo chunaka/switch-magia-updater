@@ -22,7 +22,6 @@ from magia_updater.core.models import (
     CheckStatus,
     ComponentCheck,
     ComponentId,
-    FileOperation,
     InstalledComponent,
     OperationKind,
     PayloadPolicy,
@@ -34,8 +33,6 @@ from magia_updater.core.models import (
 )
 from magia_updater.core.planner import plan_update
 from magia_updater.core.prepare import UpdatePreparer
-
-_WRITE_KINDS = {OperationKind.CREATE, OperationKind.REPLACE}
 
 STATUS_LABELS = {
     CheckStatus.UPDATE_AVAILABLE: "actualización disponible",
@@ -208,24 +205,6 @@ def _build_plan(
         update_root_payload=allow_root_payload,
     )
     return checks, plan_update(snapshot, prepared, policy)
-
-
-def _plan_writes(plan: UpdatePlan) -> tuple[FileOperation, ...]:
-    return tuple(
-        operation
-        for component_plan in plan.components
-        for operation in component_plan.operations
-        if operation.kind in _WRITE_KINDS
-    )
-
-
-def _plan_conflicts(plan: UpdatePlan) -> tuple[FileOperation, ...]:
-    return tuple(
-        operation
-        for component_plan in plan.components
-        for operation in component_plan.operations
-        if operation.kind == OperationKind.CONFLICT
-    )
 
 
 def _ask_confirmation() -> bool | None:
@@ -515,12 +494,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print()
         _print_plan(plan)
 
-        conflicts = _plan_conflicts(plan)
+        conflicts = plan.conflicts
         if conflicts:
             paths = ", ".join(operation.relative_path for operation in conflicts)
             print(f"Error: el plan contiene conflictos: {paths}", file=sys.stderr)
             return 2
-        writes = _plan_writes(plan)
+        writes = plan.changes
         if not writes:
             print("No hay cambios que aplicar.")
             return 0
