@@ -126,14 +126,28 @@ class CacheStore:
         return age <= max_age
 
     def asset_path(self, sha256: str, filename: str) -> Path:
-        normalized = sha256.strip().lower()
-        if len(normalized) != 64 or any(char not in "0123456789abcdef" for char in normalized):
-            raise ValueError(f"SHA-256 inválido: {sha256!r}")
+        normalized = _normalize_sha256(sha256)
         safe_name = Path(filename).name
         if not safe_name or safe_name in {".", ".."}:
             raise ValueError(f"Nombre de asset inválido: {filename!r}")
         return self.root / "assets" / normalized / safe_name
 
+    def extraction_dir(self, sha256: str) -> Path:
+        return self.root / "extracted" / _normalize_sha256(sha256)
+
+    def extraction_path(self, sha256: str) -> Path:
+        return self.extraction_dir(sha256) / "tree"
+
+    def extraction_marker(self, sha256: str) -> Path:
+        return self.extraction_dir(sha256) / "complete"
+
     def clear(self) -> None:
         if self.root.exists():
             shutil.rmtree(self.root)
+
+
+def _normalize_sha256(sha256: str) -> str:
+    normalized = sha256.strip().lower()
+    if len(normalized) != 64 or any(char not in "0123456789abcdef" for char in normalized):
+        raise ValueError(f"SHA-256 inválido: {sha256!r}")
+    return normalized

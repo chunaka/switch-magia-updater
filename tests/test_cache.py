@@ -85,6 +85,16 @@ def test_asset_path_is_safe(tmp_path: Path) -> None:
         cache.asset_path("no-es-sha", "archivo.zip")
 
 
+def test_extraction_paths(tmp_path: Path) -> None:
+    cache = CacheStore(tmp_path / "cache")
+    digest = "b" * 64
+
+    assert cache.extraction_path(digest) == cache.root / "extracted" / digest / "tree"
+    assert cache.extraction_marker(digest) == cache.root / "extracted" / digest / "complete"
+    with pytest.raises(ValueError):
+        cache.extraction_path("no-es-sha")
+
+
 def test_cache_clear(tmp_path: Path) -> None:
     cache = CacheStore(tmp_path / "cache")
     release = load_release("atmosphere", ComponentId.ATMOSPHERE)
