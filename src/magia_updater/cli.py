@@ -14,7 +14,6 @@ from magia_updater.core.cache import CacheStore
 from magia_updater.core.check import ReleaseService
 from magia_updater.core.components import UPDATABLE_COMPONENTS
 from magia_updater.core.detect import component_names, detect_sd
-from magia_updater.core.download import AssetDownloader, OfflineDownloadTransport
 from magia_updater.core.errors import MagiaError
 from magia_updater.core.export import ExportFormat, ExportKind, export_plan
 from magia_updater.core.github import GitHubClient
@@ -25,15 +24,13 @@ from magia_updater.core.models import (
     ComponentId,
     InstalledComponent,
     OperationKind,
-    PayloadPolicy,
     SdSnapshot,
     UpdatePlan,
     component_check_to_dict,
     snapshot_to_dict,
     update_plan_to_dict,
 )
-from magia_updater.core.planner import plan_update
-from magia_updater.core.prepare import UpdatePreparer
+from magia_updater.core.workflow import build_update_plan
 
 STATUS_LABELS = {
     CheckStatus.UPDATE_AVAILABLE: "actualización disponible",
@@ -167,45 +164,6 @@ def _parse_components(raw: str) -> tuple[ComponentId, ...]:
     if not result:
         raise ValueError("No se indicó ningún componente.")
     return tuple(result)
-
-
-def _build_plan(
-    snapshot: SdSnapshot,
-    components: Sequence[ComponentId],
-    *,
-    cache: CacheStore,
-    offline: bool,
-    refresh: bool,
-    no_payloads: bool,
-    allow_reboot_payload: bool,
-    allow_root_payload: bool,
-) -> tuple[tuple[ComponentCheck, ...], UpdatePlan]:
-    token = os.environ.get("MAGIA_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")
-    service = ReleaseService(GitHubClient(token=token), cache)
-    checks = service.check_all(
-        snapshot,
-        components=tuple(components),
-        offline=offline,
-        force=refresh,
-    )
-    candidates = tuple(
-        check
-        for check in checks
-        if check.status in {CheckStatus.UPDATE_AVAILABLE, CheckStatus.NOT_INSTALLED}
-    )
-    if not candidates:
-        return checks, UpdatePlan(components=(), warnings=())
-
-    transport = OfflineDownloadTransport() if offline else None
-    downloader = AssetDownloader(cache, transport=transport)
-    preparer = UpdatePreparer(downloader, cache)
-    prepared = preparer.prepare_all(candidates)
-    policy = PayloadPolicy(
-        install_payloads=not no_payloads,
-        update_reboot_payload=allow_reboot_payload,
-        update_root_payload=allow_root_payload,
-    )
-    return checks, plan_update(snapshot, prepared, policy)
 
 
 def _ask_confirmation() -> bool | None:
@@ -441,7 +399,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
 
         try:
-            checks, plan = _build_plan(
+            checks, plan = build_update_plan(
                 snapshot,
                 components,
                 cache=CacheStore(args.cache_dir),
@@ -500,7 +458,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
 
         try:
-            checks, plan = _build_plan(
+            checks, plan = build_update_plan(
                 snapshot,
                 components,
                 cache=CacheStore(args.cache_dir),
@@ -572,7 +530,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
 
         try:
-            checks, plan = _build_plan(
+            checks, plan = build_update_plan(
                 snapshot,
                 components,
                 cache=CacheStore(args.cache_dir),
