@@ -42,7 +42,7 @@ Reglas:
 
 ```text
 core, detect, components, github, cache, assets, check, cli,
-download, zip, planner, installer, gui, docs
+download, zip, planner, installer, export, settings, backup, gui, docs
 ```
 
 ### Ejemplos
