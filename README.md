@@ -3,9 +3,9 @@
 Actualizador seguro de CFW para Nintendo Switch. Gestiona **Atmosphère**, **Hekate** y
 **sys-patch** sin tocar configuraciones, sysmodules ni payloads desconocidos.
 
-> Estado: **Fases 1 a 4 completadas**. La CLI todavía solo expone `detect`, `check` y `plan`;
-> la capa interna de instalación ya aplica planes con backup, escrituras atómicas, rollback y
-> estado. El comando `apply` y las pruebas end-to-end de CLI llegan en la Fase 5.
+> Estado: **Fases 1 a 5 completadas**. La CLI expone `detect`, `check`, `plan` y `apply`.
+> `apply` calcula el plan, pide confirmación, crea un backup, escribe de forma atómica y puede
+> revertir la transacción si algo falla. La GUI y la exportación llegan en la Fase 6.
 
 ## Requisitos
 
@@ -40,6 +40,13 @@ magia plan --sd E:\ --offline
 magia plan --sd E:\ --allow-reboot-payload
 magia plan --sd E:\ --allow-root-payload
 magia plan --sd E:\ --no-payloads
+
+magia apply --sd E:\
+magia apply --sd E:\ --yes
+magia apply --sd E:\ --offline --yes
+magia apply --sd E:\ --mirror-backup
+magia apply --sd E:\ --backup-dir D:\MagiaBackups --state-dir D:\MagiaState
+magia apply --sd E:\ --keep-backups 5
 ```
 
 `detect` es **offline**: no descarga nada y no modifica la SD. `check` consulta la última
@@ -55,10 +62,15 @@ su actualización hay que usar `--allow-reboot-payload` o `--allow-root-payload`
 conocidos (`fusee.bin` y `hekate_ctcaer_<versión>.bin`) se colocan en `/bootloader/payloads`;
 `--no-payloads` desactiva esa parte del plan.
 
-## Instalación interna (Fase 4)
+`apply` ejecuta el mismo flujo de detección, comprobación, descarga y planificación, muestra el
+plan y pide confirmación antes de escribir. En una terminal interactiva se responde `s` para
+continuar; en scripts o CI hay que usar `--yes`. `--yes` no sustituye a
+`--allow-reboot-payload`/`--allow-root-payload`: esas rutas protegidas siguen necesitando su
+flag específico. Si no hay cambios, `apply` termina sin crear backup ni tocar la SD.
 
-La capa `UpdateInstaller` aplica un `UpdatePlan` sobre una SD. Todavía no está expuesta como
-comando de CLI, pero ya implementa el flujo seguro que usará `magia apply` en la Fase 5:
+## Instalación y aplicación (Fases 4–5)
+
+El comando `magia apply` usa la capa `UpdateInstaller` para aplicar un `UpdatePlan` sobre una SD:
 
 - **Preflight**: rechaza rutas con traversal, symlinks, conflictos, destinos que cambiaron desde
   que se creó el plan y fuentes cuyo tamaño o SHA-256 no coinciden. También comprueba el espacio
@@ -80,8 +92,11 @@ comando de CLI, pero ya implementa el flujo seguro que usará `magia apply` en l
   `%LOCALAPPDATA%\MagiaUpdater\state\<sd_id>.json`, incluyendo versiones, backup y digest del plan.
 - **Identidad de SD**: usa el número de serie del volumen de Windows (`win-<serial>`) o, como
   fallback, el dispositivo y una huella de la ruta (`dev-...`).
+- **CLI**: `apply` permite cambiar `--backup-dir`, `--state-dir`, `--mirror-backup` y
+  `--keep-backups`; antes de planificar recupera cualquier journal local en estado `applying`.
 
-Las pruebas de esta fase usan raíces de SD falsas; no se realizaron escrituras en una SD real.
+Las pruebas de las fases 4 y 5 usan raíces de SD falsas; no se realizaron escrituras en una SD
+real.
 
 La caché se guarda por defecto en `%LOCALAPPDATA%\MagiaUpdater\cache`. Incluye las releases,
 los assets descargados y los ZIP ya extraídos, identificados por su SHA-256. Para evitar el
@@ -119,7 +134,7 @@ token de solo lectura; no es obligatorio.
 - [x] Fase 2: cliente GitHub, caché, selección de assets y comparación de digests.
 - [x] Fase 3: descarga verificada, extracción segura de ZIP y planner de actualización.
 - [x] Fase 4: backup, instalación atómica, rollback y estado.
-- [ ] Fase 5: CLI end-to-end y pruebas con SD falsa.
+- [x] Fase 5: CLI end-to-end, recuperación y pruebas con SD falsa.
 - [ ] Fase 6: GUI PySide6, exportación, backups y ajustes.
 - [ ] Fase 7: compatibilidad de firmware, empaquetado y prueba real.
 
