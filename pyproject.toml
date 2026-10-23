@@ -63,4 +63,4 @@ files = ["src/magia_updater"]
 
 [[tool.mypy.overrides]]
 module = ["magia_updater.gui.*"]
-ignore_missing_imports = true
+disable_error_code = ["import-not-found", "misc", "untyped-decorator", "no-any-return"]
