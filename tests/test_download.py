@@ -10,6 +10,7 @@ from magia_updater.core.download import (
     AssetDownloader,
     DownloadError,
     DownloadVerificationError,
+    OfflineDownloadTransport,
     ProgressCallback,
     sha256_file,
     verify_asset,
@@ -163,3 +164,30 @@ def test_sha256_file_and_verify_asset(tmp_path: Path) -> None:
 
     assert sha256_file(path) == hashlib.sha256(data).hexdigest()
     verify_asset(path, asset)
+
+
+def test_offline_transport_refuses_missing_asset(tmp_path: Path) -> None:
+    data = b"no descargar"
+    asset = make_asset(data)
+    downloader = AssetDownloader(
+        CacheStore(tmp_path / "cache"),
+        transport=OfflineDownloadTransport(),
+    )
+
+    with pytest.raises(DownloadError, match="offline"):
+        downloader.download(asset)
+
+
+def test_offline_transport_uses_valid_cache(tmp_path: Path) -> None:
+    data = b"ya descargado"
+    asset = make_asset(data)
+    cache = CacheStore(tmp_path / "cache")
+    path = cache.asset_path(asset.sha256 or "", asset.name)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(data)
+    downloader = AssetDownloader(cache, transport=OfflineDownloadTransport())
+
+    result = downloader.download(asset)
+
+    assert result.from_cache is True
+    assert result.path == path

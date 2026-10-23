@@ -86,6 +86,20 @@ class UrllibDownloadTransport:
             raise DownloadError(f"No se pudo descargar {url}: {exc}") from exc
 
 
+class OfflineDownloadTransport:
+    """Transporte que falla si el asset no está ya en la caché."""
+
+    def download(
+        self,
+        url: str,
+        destination: Path,
+        *,
+        expected_size: int,
+        progress: ProgressCallback | None = None,
+    ) -> None:
+        raise DownloadError(f"Modo offline: el asset no está en la caché ({url}).")
+
+
 @dataclass(frozen=True)
 class DownloadResult:
     asset: AssetInfo
