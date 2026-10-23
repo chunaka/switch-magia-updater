@@ -18,6 +18,8 @@ from magia_updater.core.installer import (
     UpdateInstaller,
 )
 from magia_updater.core.models import (
+    CheckStatus,
+    ComponentCheck,
     ComponentId,
     ComponentPlan,
     FileOperation,
@@ -28,6 +30,8 @@ from magia_updater.core.models import (
     UpdatePlan,
     Version,
 )
+from magia_updater.core.planner import plan_component
+from magia_updater.core.prepare import PreparedComponent
 from magia_updater.core.state import StateStore
 
 FIXED_NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -401,6 +405,55 @@ def test_apply_prunes_old_backups(tmp_path: Path) -> None:
     assert len([directory for directory in base.iterdir() if directory.is_dir()]) == 2
     assert (base / "20250101T000000000000Z").exists() is False
     assert result.pruned
+
+
+def test_plan_and_apply_end_to_end(tmp_path: Path) -> None:
+    sd_root = tmp_path / "sd"
+    write_file(sd_root, "atmosphere/package3", b"viejo package3")
+    write_file(sd_root, "atmosphere/config/system_settings.ini", b"config de usuario")
+
+    archive = tmp_path / "archive"
+    write_file(archive, "atmosphere/package3", b"nuevo package3")
+    write_file(archive, "atmosphere/config/system_settings.ini", b"template nuevo")
+    write_file(archive, "switch/daybreak.nro", b"daybreak")
+    write_file(archive, "hbmenu.nro", b"hbmenu")
+    payload = write_file(tmp_path / "sources", "fusee.bin", b"fusee")
+    release = ReleaseInfo(
+        component=ComponentId.ATMOSPHERE,
+        tag="1.12.1",
+        version=Version.parse("1.12.1"),
+        name="Atmosphere 1.12.1",
+        html_url="",
+        published_at=None,
+        body="",
+        prerelease=False,
+        draft=False,
+        assets=(),
+    )
+    check = ComponentCheck(
+        component=ComponentId.ATMOSPHERE,
+        installed=Version.parse("1.11.2"),
+        latest=Version.parse("1.12.1"),
+        status=CheckStatus.UPDATE_AVAILABLE,
+        release=release,
+    )
+    prepared = PreparedComponent(
+        check=check,
+        archive_root=archive,
+        payloads={"fusee.bin": payload},
+    )
+    plan = UpdatePlan(components=(plan_component(make_snapshot(sd_root), prepared),))
+    assert plan.requires_confirmation is False
+
+    installer, _ = make_installer(tmp_path)
+    result = installer.apply(make_snapshot(sd_root), plan, now=lambda: FIXED_NOW)
+
+    assert (sd_root / "atmosphere/package3").read_bytes() == b"nuevo package3"
+    assert (sd_root / "hbmenu.nro").read_bytes() == b"hbmenu"
+    assert (sd_root / "switch/daybreak.nro").read_bytes() == b"daybreak"
+    assert (sd_root / "bootloader/payloads/fusee.bin").read_bytes() == b"fusee"
+    assert (sd_root / "atmosphere/config/system_settings.ini").read_bytes() == b"config de usuario"
+    assert result.state_path is not None
 
 
 def test_recover_rolls_back_incomplete_session(tmp_path: Path) -> None:
