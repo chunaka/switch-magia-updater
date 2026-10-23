@@ -35,8 +35,8 @@ def default_state_root() -> Path:
     return default_app_root() / "state"
 
 
-def resolve_within(root: Path, relative: str) -> Path:
-    """Resuelve una ruta POSIX relativa y comprueba que quede dentro de ``root``."""
+def validate_relative_path(relative: str) -> PurePosixPath:
+    """Valida una ruta POSIX relativa sin resolverla contra el sistema de archivos."""
     if not relative or "\x00" in relative:
         raise PathSecurityError(f"Ruta relativa vacía o inválida: {relative!r}")
     if relative.startswith(("/", "\\")) or "\\" in relative:
@@ -50,7 +50,12 @@ def resolve_within(root: Path, relative: str) -> Path:
         raise PathSecurityError(f"Ruta con traversal: {relative!r}")
     if _DRIVE_RE.match(member.parts[0]):
         raise PathSecurityError(f"Ruta con unidad de Windows: {relative!r}")
+    return member
 
+
+def resolve_within(root: Path, relative: str) -> Path:
+    """Resuelve una ruta POSIX relativa y comprueba que quede dentro de ``root``."""
+    member = validate_relative_path(relative)
     root_resolved = root.resolve()
     target = (root_resolved / member).resolve()
     if target != root_resolved and root_resolved not in target.parents:

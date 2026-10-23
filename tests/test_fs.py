@@ -16,7 +16,12 @@ from magia_updater.core.fs import (
     ensure_no_symlink_path,
     read_json,
     resolve_within,
+    validate_relative_path,
 )
+
+
+def test_validate_relative_path_accepts_nested_path() -> None:
+    assert validate_relative_path("atmosphere/package3").as_posix() == "atmosphere/package3"
 
 
 def test_resolve_within_accepts_nested_path(tmp_path: Path) -> None:
@@ -39,6 +44,23 @@ def test_resolve_within_accepts_nested_path(tmp_path: Path) -> None:
 def test_resolve_within_rejects_unsafe_paths(tmp_path: Path, relative: str) -> None:
     with pytest.raises(PathSecurityError):
         resolve_within(tmp_path, relative)
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "",
+        "../evil.bin",
+        "a/../../evil.bin",
+        "/evil.bin",
+        "\\\\evil.bin",
+        "a\\evil.bin",
+        "C:/evil.bin",
+    ],
+)
+def test_validate_relative_path_rejects_unsafe_paths(relative: str) -> None:
+    with pytest.raises(PathSecurityError):
+        validate_relative_path(relative)
 
 
 def test_atomic_write_and_read_json(tmp_path: Path) -> None:
