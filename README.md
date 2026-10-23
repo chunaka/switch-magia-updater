@@ -3,9 +3,9 @@
 Actualizador seguro de CFW para Nintendo Switch. Gestiona **Atmosphère**, **Hekate** y
 **sys-patch** sin tocar configuraciones, sysmodules ni payloads desconocidos.
 
-> Estado: **Fases 1, 2 y 3 completadas**. Todavía no escribe en la SD: detecta el estado offline,
-> consulta GitHub, descarga y valida los assets, y calcula un plan de actualización. La instalación
-> atómica y el rollback llegan en la Fase 4.
+> Estado: **Fases 1 a 4 completadas**. La CLI todavía solo expone `detect`, `check` y `plan`;
+> la capa interna de instalación ya aplica planes con backup, escrituras atómicas, rollback y
+> estado. El comando `apply` y las pruebas end-to-end de CLI llegan en la Fase 5.
 
 ## Requisitos
 
@@ -55,6 +55,34 @@ su actualización hay que usar `--allow-reboot-payload` o `--allow-root-payload`
 conocidos (`fusee.bin` y `hekate_ctcaer_<versión>.bin`) se colocan en `/bootloader/payloads`;
 `--no-payloads` desactiva esa parte del plan.
 
+## Instalación interna (Fase 4)
+
+La capa `UpdateInstaller` aplica un `UpdatePlan` sobre una SD. Todavía no está expuesta como
+comando de CLI, pero ya implementa el flujo seguro que usará `magia apply` en la Fase 5:
+
+- **Preflight**: rechaza rutas con traversal, symlinks, conflictos, destinos que cambiaron desde
+  que se creó el plan y fuentes cuyo tamaño o SHA-256 no coinciden. También comprueba el espacio
+  libre antes de escribir.
+- **Confirmación**: si una escritura afecta a una ruta protegida, exige confirmación explícita.
+  Las operaciones `KEEP`/`SKIP` no bloquean la aplicación de cambios seguros.
+- **Backup**: guarda los archivos que se van a reemplazar en
+  `%LOCALAPPDATA%\MagiaUpdater\backups\<sd_id>\<timestamp>\`, con `manifest.json`, `journal.json`
+  y una copia en `files/`. Se conservan los 3 backups más recientes. Opcionalmente se puede
+  espejar el backup en `/.magia/backups/<timestamp>` de la SD.
+- **Escritura atómica**: cada archivo se copia a un temporal en el mismo directorio, se hace
+  `fsync` y se reemplaza con `os.replace`. El journal registra la operación pendiente y las
+  completadas para poder recuperar una transacción interrumpida.
+- **Rollback**: si falla una escritura, restaura los archivos reemplazados y elimina los creados.
+  Si el rollback también falla, deja el journal en `rollback_failed` y reporta los errores.
+- **Recuperación**: `UpdateInstaller.recover` detecta journals en estado `applying` y revierte la
+  transacción antes de aplicar un plan nuevo.
+- **Estado**: guarda la última actualización aplicada en
+  `%LOCALAPPDATA%\MagiaUpdater\state\<sd_id>.json`, incluyendo versiones, backup y digest del plan.
+- **Identidad de SD**: usa el número de serie del volumen de Windows (`win-<serial>`) o, como
+  fallback, el dispositivo y una huella de la ruta (`dev-...`).
+
+Las pruebas de esta fase usan raíces de SD falsas; no se realizaron escrituras en una SD real.
+
 La caché se guarda por defecto en `%LOCALAPPDATA%\MagiaUpdater\cache`. Incluye las releases,
 los assets descargados y los ZIP ya extraídos, identificados por su SHA-256. Para evitar el
 límite de la API de GitHub se puede definir `MAGIA_GITHUB_TOKEN` (o `GITHUB_TOKEN`) con un
@@ -82,14 +110,15 @@ token de solo lectura; no es obligatorio.
 - Los payloads desconocidos se preservan y se pide confirmación antes de reemplazarlos.
 - La extracción de ZIP rechaza traversal, rutas absolutas o de Windows, enlaces simbólicos,
   entradas cifradas, duplicados y archivos que excedan los límites.
-- Las escrituras en la SD serán atómicas, con backup y rollback en la Fase 4.
+- Las escrituras en la SD usan backup, escritura atómica, journal y rollback; un plan obsoleto se
+  rechaza si el destino cambió desde que se calculó.
 
 ## Fases
 
 - [x] Fase 1: estructura, modelos, registro de componentes, detección offline y tests.
 - [x] Fase 2: cliente GitHub, caché, selección de assets y comparación de digests.
 - [x] Fase 3: descarga verificada, extracción segura de ZIP y planner de actualización.
-- [ ] Fase 4: backup, instalación atómica, rollback y estado.
+- [x] Fase 4: backup, instalación atómica, rollback y estado.
 - [ ] Fase 5: CLI end-to-end y pruebas con SD falsa.
 - [ ] Fase 6: GUI PySide6, exportación, backups y ajustes.
 - [ ] Fase 7: compatibilidad de firmware, empaquetado y prueba real.
