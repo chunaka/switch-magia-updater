@@ -1,0 +1,227 @@
+"""CLI mínima de la Fase 1: detección offline y salida JSON."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+from collections.abc import Sequence
+
+from magia_updater import __version__
+from magia_updater.core.cache import CacheStore
+from magia_updater.core.check import ReleaseService
+from magia_updater.core.components import UPDATABLE_COMPONENTS
+from magia_updater.core.detect import component_names, detect_sd
+from magia_updater.core.errors import MagiaError
+from magia_updater.core.github import GitHubClient
+from magia_updater.core.models import (
+    CheckStatus,
+    ComponentCheck,
+    ComponentId,
+    InstalledComponent,
+    SdSnapshot,
+    component_check_to_dict,
+    snapshot_to_dict,
+)
+
+STATUS_LABELS = {
+    CheckStatus.UPDATE_AVAILABLE: "actualización disponible",
+    CheckStatus.UP_TO_DATE: "al día",
+    CheckStatus.NOT_INSTALLED: "no instalado",
+    CheckStatus.INSTALLED_NEWER: "instalado más nuevo",
+    CheckStatus.UNKNOWN: "sin datos",
+}
+
+
+def _format_installed(installed: InstalledComponent) -> str:
+    if not installed.present:
+        return "no detectado"
+    if installed.version is None:
+        return "presente (versión desconocida)"
+    text = str(installed.version)
+    if installed.evidence:
+        text = f"{text} ({installed.evidence})"
+    return text
+
+
+def _print_snapshot(snapshot: SdSnapshot) -> None:
+    names = component_names()
+    print(f"SD: {snapshot.root}")
+    print(f"SD de Switch: {'sí' if snapshot.is_switch_sd else 'no'}")
+    print(f"CFW detectado: {'sí' if snapshot.has_cfw else 'no'}")
+    print()
+
+    for component_id in (
+        ComponentId.ATMOSPHERE,
+        ComponentId.HEKATE,
+        ComponentId.SYS_PATCH,
+        ComponentId.HBMENU,
+    ):
+        installed = snapshot.components[component_id]
+        print(f"{names[component_id]}: {_format_installed(installed)}")
+        if installed.supported_firmware is not None:
+            print(f"  Firmware soportado por el paquete: {installed.supported_firmware}")
+
+    firmware = snapshot.firmware
+    if firmware.version is None:
+        print("Firmware: desconocido")
+    else:
+        source = f" ({firmware.source})" if firmware.source else ""
+        print(f"Firmware: {firmware.version}{source}")
+    if firmware.ams_version is not None:
+        print(f"AMS en el último arranque: {firmware.ams_version}")
+
+    print()
+    print(f"EmuMMC: {'sí' if snapshot.emummc_present else 'no'}")
+    print(f"/atmosphere/config: {'sí' if snapshot.atmosphere_config_present else 'no'}")
+    print(f"hekate_ipl.ini: {'sí' if snapshot.hekate_config_present else 'no'}")
+    print(f"Payload raíz: {'sí' if snapshot.root_payload else 'no'}")
+    print(f"reboot_payload.bin: {'sí' if snapshot.reboot_payload else 'no'}")
+    print(f"Payloads en /bootloader/payloads: {len(snapshot.payloads)}")
+
+    if snapshot.warnings:
+        print()
+        print("Advertencias:")
+        for warning in snapshot.warnings:
+            print(f"  - {warning}")
+
+    if snapshot.errors:
+        print()
+        print("Errores:")
+        for error in snapshot.errors:
+            print(f"  - {error}")
+
+
+def _print_checks(checks: Sequence[ComponentCheck]) -> None:
+    names = component_names()
+    for check in checks:
+        installed = str(check.installed) if check.installed else "no instalado"
+        latest = str(check.latest) if check.latest else "desconocida"
+        cache = " [caché]" if check.from_cache else ""
+        print(
+            f"{names[check.component]}: {installed} -> {latest}"
+            f" ({STATUS_LABELS[check.status]}){cache}"
+        )
+        if check.error:
+            print(f"  Error: {check.error}")
+        for warning in check.warnings:
+            print(f"  Aviso: {warning}")
+
+
+def _parse_components(raw: str) -> tuple[ComponentId, ...]:
+    valid = {component.value: component for component in UPDATABLE_COMPONENTS}
+    result: list[ComponentId] = []
+    for name in raw.split(","):
+        key = name.strip().lower()
+        if not key:
+            continue
+        component = valid.get(key)
+        if component is None:
+            allowed = ", ".join(valid)
+            raise ValueError(f"Componente inválido: {key!r}. Válidos: {allowed}")
+        if component not in result:
+            result.append(component)
+    if not result:
+        raise ValueError("No se indicó ningún componente.")
+    return tuple(result)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="magia",
+        description="Actualizador seguro de CFW para Nintendo Switch.",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    detect_parser = subparsers.add_parser(
+        "detect",
+        help="Detecta versiones instaladas sin modificar la SD.",
+    )
+    detect_parser.add_argument("--sd", required=True, help="Ruta raíz de la SD (ej. E:\\).")
+    detect_parser.add_argument("--json", action="store_true", help="Salida JSON para scripts.")
+
+    check_parser = subparsers.add_parser(
+        "check",
+        help="Compara lo instalado con las últimas releases de GitHub.",
+    )
+    check_parser.add_argument("--sd", required=True, help="Ruta raíz de la SD (ej. E:\\).")
+    check_parser.add_argument(
+        "--components",
+        default="atmosphere,hekate,sys-patch",
+        help="Lista separada por comas (default: atmosphere,hekate,sys-patch).",
+    )
+    check_parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="No consulta GitHub; usa solo la caché local.",
+    )
+    check_parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Ignora la caché fresca y fuerza la consulta a GitHub.",
+    )
+    check_parser.add_argument(
+        "--cache-dir",
+        default=None,
+        help="Directorio de caché (default: %%LOCALAPPDATA%%\\MagiaUpdater\\cache).",
+    )
+    check_parser.add_argument("--json", action="store_true", help="Salida JSON para scripts.")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    if args.command == "detect":
+        try:
+            snapshot = detect_sd(args.sd)
+        except MagiaError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+
+        if args.json:
+            print(json.dumps(snapshot_to_dict(snapshot), ensure_ascii=False, indent=2))
+        else:
+            _print_snapshot(snapshot)
+        return 0 if snapshot.is_switch_sd else 1
+
+    if args.command == "check":
+        try:
+            snapshot = detect_sd(args.sd)
+            components = _parse_components(args.components)
+        except (MagiaError, ValueError) as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+        if not snapshot.is_switch_sd:
+            print("Error: la carpeta no parece una SD de Switch.", file=sys.stderr)
+            return 2
+
+        token = os.environ.get("MAGIA_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")
+        service = ReleaseService(
+            GitHubClient(token=token),
+            CacheStore(args.cache_dir),
+        )
+        checks = service.check_all(
+            snapshot,
+            components=components,
+            offline=args.offline,
+            force=args.refresh,
+        )
+
+        if args.json:
+            payload = {
+                "root": str(snapshot.root),
+                "checks": {
+                    check.component.value: component_check_to_dict(check) for check in checks
+                },
+            }
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            _print_checks(checks)
+        return 1 if any(check.status == CheckStatus.UNKNOWN for check in checks) else 0
+
+    parser.error(f"Comando no implementado: {args.command}")
+    return 2
