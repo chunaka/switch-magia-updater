@@ -84,13 +84,15 @@ def _operation_for_source(
             requires_confirmation=True,
         )
     if destination.is_file():
-        if sha256_file(destination) == source_hash:
+        destination_hash = sha256_file(destination)
+        if destination_hash == source_hash:
             return FileOperation(
                 relative_path=relative_path,
                 kind=OperationKind.KEEP,
                 source=source,
                 size=size,
                 sha256=source_hash,
+                destination_sha256=destination_hash,
                 reason="idéntico",
             )
         return FileOperation(
@@ -99,6 +101,7 @@ def _operation_for_source(
             source=source,
             size=size,
             sha256=source_hash,
+            destination_sha256=destination_hash,
             reason=reason,
         )
     return FileOperation(
@@ -169,6 +172,7 @@ def plan_component(
                         relative_path=relative,
                         kind=OperationKind.KEEP,
                         size=destination.stat().st_size,
+                        destination_sha256=sha256_file(destination),
                         reason="payload existente; confirmar para actualizar",
                         requires_confirmation=True,
                     )
@@ -230,6 +234,7 @@ def plan_component(
             relative_path="payload.bin",
             kind=OperationKind.KEEP,
             size=snapshot.root_payload.stat().st_size,
+            destination_sha256=sha256_file(snapshot.root_payload),
             reason="payload raíz preservado; confirmar para actualizar",
             requires_confirmation=True,
         )
@@ -244,6 +249,7 @@ def plan_component(
             relative_path="atmosphere/reboot_payload.bin",
             kind=OperationKind.KEEP,
             size=snapshot.reboot_payload.stat().st_size,
+            destination_sha256=sha256_file(snapshot.reboot_payload),
             reason="payload existente; confirmar para actualizar",
             requires_confirmation=True,
         )

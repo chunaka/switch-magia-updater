@@ -264,6 +264,7 @@ class FileOperation:
     source: Path | None = None
     size: int | None = None
     sha256: str | None = None
+    destination_sha256: str | None = None
     reason: str = ""
     requires_confirmation: bool = False
 
@@ -441,6 +442,7 @@ def operation_to_dict(operation: FileOperation) -> dict[str, Any]:
         "source": str(operation.source) if operation.source else None,
         "size": operation.size,
         "sha256": operation.sha256,
+        "destination_sha256": operation.destination_sha256,
         "reason": operation.reason,
         "requires_confirmation": operation.requires_confirmation,
     }
