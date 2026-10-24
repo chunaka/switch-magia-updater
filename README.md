@@ -123,9 +123,6 @@ El comando `magia apply` usa la capa `UpdateInstaller` para aplicar un `UpdatePl
 - **CLI**: `apply` permite cambiar `--backup-dir`, `--state-dir`, `--mirror-backup` y
   `--keep-backups`; antes de planificar recupera cualquier journal local en estado `applying`.
 
-Las pruebas de las fases 4 a 6 usan raíces de SD falsas y una GUI headless; no se realizaron
-escrituras en una SD real.
-
 La caché se guarda por defecto en `%LOCALAPPDATA%\MagiaUpdater\cache`. Incluye las releases,
 los assets descargados y los ZIP ya extraídos, identificados por su SHA-256. Para evitar el
 límite de la API de GitHub se puede definir `MAGIA_GITHUB_TOKEN` (o `GITHUB_TOKEN`) con un
