@@ -3,7 +3,7 @@
 Actualizador seguro de CFW para Nintendo Switch. Gestiona **Atmosphère**, **Hekate** y
 **sys-patch** sin tocar configuraciones, sysmodules ni payloads desconocidos.
 
-> Estado: **Fases 1 a 6 completadas**. La CLI expone `detect`, `check`, `plan`, `apply` y
+> La CLI expone `detect`, `check`, `plan`, `apply` y
 > `export`. `apply` calcula el plan, pide confirmación, crea un backup, escribe de forma atómica
 > y puede revertir la transacción si algo falla. La GUI permite detectar, planificar, aplicar,
 > exportar paquetes, gestionar backups y cambiar ajustes.
@@ -83,7 +83,7 @@ relativa, `manifest.json` con componentes, tamaños y SHA-256, y `LEEME.txt` con
 El destino debe ser nuevo; no se sobrescribe un paquete existente. Los conflictos y las fuentes
 cuyo hash cambió desde el plan se rechazan.
 
-## GUI (Fase 6)
+## GUI
 
 La GUI es opcional y usa PySide6. Instálala con `python -m pip install -e ".[gui]"` y ejecuta
 `magia-gui` o `python -m magia_updater.gui`. Permite seleccionar la SD, detectar componentes,
@@ -96,7 +96,7 @@ caché, backups y estado, el número de backups a conservar, el espejo de backup
 offline, la instalación de payloads y los permisos para `/atmosphere/reboot_payload.bin` y
 `/payload.bin`.
 
-## Instalación y aplicación (Fases 4–5)
+## Instalación y aplicación
 
 El comando `magia apply` usa la capa `UpdateInstaller` para aplicar un `UpdatePlan` sobre una SD:
 
@@ -158,19 +158,6 @@ token de solo lectura; no es obligatorio.
 - La exportación es de solo lectura sobre la SD. El paquete no incluye rutas absolutas locales y
   rechaza traversal, rutas duplicadas, nombres reservados, conflictos y fuentes alteradas.
 
-## Fases
-
-- [x] Fase 1: estructura, modelos, registro de componentes, detección offline y tests.
-- [x] Fase 2: cliente GitHub, caché, selección de assets y comparación de digests.
-- [x] Fase 3: descarga verificada, extracción segura de ZIP y planner de actualización.
-- [x] Fase 4: backup, instalación atómica, rollback y estado.
-- [x] Fase 5: CLI end-to-end, recuperación y pruebas con SD falsa.
-- [x] Fase 6: GUI PySide6, exportación ZIP/carpeta, backups y ajustes.
-- [ ] Fase 7: compatibilidad de firmware, empaquetado y prueba real.
-
-## Contribución
-
-Las convenciones de ramas, commits y verificación están en [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Licencia
 
