@@ -14,6 +14,7 @@ from helpers import load_release
 from magia_updater.cli import main
 from magia_updater.core.backup import BackupManager
 from magia_updater.core.cache import CacheStore
+from magia_updater.core.devices import SdCandidate
 from magia_updater.core.identity import get_sd_identity
 from magia_updater.core.models import (
     AssetInfo,
@@ -68,12 +69,67 @@ def test_cli_detect_not_switch_sd(tmp_path: Path, capsys: pytest.CaptureFixture[
     assert "SD de Switch: no" in captured.out
 
 
+def test_cli_detect_autodetects_single_sd(
+    fake_sd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    candidate = SdCandidate(
+        root=fake_sd.resolve(),
+        drive_type="ruta",
+        markers=("atmosphere/package3",),
+    )
+    monkeypatch.setattr("magia_updater.cli.find_switch_sds", lambda: (candidate,))
+
+    result = main(["detect", "--json"])
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert json.loads(captured.out)["root"] == str(fake_sd.resolve())
+
+
+def test_cli_autodetect_requires_choice_with_several_sds(
+    fake_sd: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    second = tmp_path / "second-sd"
+    second.mkdir()
+    monkeypatch.setattr(
+        "magia_updater.cli.find_switch_sds",
+        lambda: (
+            SdCandidate(root=fake_sd.resolve(), drive_type="ruta", markers=()),
+            SdCandidate(root=second.resolve(), drive_type="ruta", markers=()),
+        ),
+    )
+
+    result = main(["detect"])
+    captured = capsys.readouterr()
+
+    assert result == 2
+    assert "varias SD" in captured.err
+
+
+def test_cli_autodetect_reports_missing_sd(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr("magia_updater.cli.find_switch_sds", lambda: ())
+
+    result = main(["detect"])
+    captured = capsys.readouterr()
+
+    assert result == 2
+    assert "No se detectó" in captured.err
+
+
 def test_cli_version(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc:
         main(["--version"])
 
     assert exc.value.code == 0
-    assert "magia 0.1.0" in capsys.readouterr().out
+    assert "magia 1.0.0" in capsys.readouterr().out
 
 
 def _populate_cache(cache_dir: Path) -> None:

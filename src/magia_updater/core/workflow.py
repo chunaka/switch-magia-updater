@@ -7,7 +7,7 @@ from collections.abc import Sequence
 
 from magia_updater.core.cache import CacheStore
 from magia_updater.core.check import ReleaseService
-from magia_updater.core.download import AssetDownloader, OfflineDownloadTransport
+from magia_updater.core.download import AssetDownloader, OfflineDownloadTransport, ProgressCallback
 from magia_updater.core.github import GitHubClient
 from magia_updater.core.models import (
     CheckStatus,
@@ -31,6 +31,7 @@ def build_update_plan(
     no_payloads: bool,
     allow_reboot_payload: bool,
     allow_root_payload: bool,
+    progress: ProgressCallback | None = None,
 ) -> tuple[tuple[ComponentCheck, ...], UpdatePlan]:
     """Comprueba releases y prepara un plan sin escribir en la SD."""
     token = os.environ.get("MAGIA_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN")
@@ -52,7 +53,7 @@ def build_update_plan(
     transport = OfflineDownloadTransport() if offline else None
     downloader = AssetDownloader(cache, transport=transport)
     preparer = UpdatePreparer(downloader, cache)
-    prepared = preparer.prepare_all(candidates)
+    prepared = preparer.prepare_all(candidates, progress=progress)
     policy = PayloadPolicy(
         install_payloads=not no_payloads,
         update_reboot_payload=allow_reboot_payload,

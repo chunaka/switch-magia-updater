@@ -14,6 +14,7 @@ from magia_updater.core.cache import CacheStore
 from magia_updater.core.check import ReleaseService
 from magia_updater.core.components import UPDATABLE_COMPONENTS
 from magia_updater.core.detect import component_names, detect_sd
+from magia_updater.core.devices import find_switch_sds
 from magia_updater.core.errors import MagiaError
 from magia_updater.core.export import ExportFormat, ExportKind, export_plan
 from magia_updater.core.github import GitHubClient
@@ -148,6 +149,23 @@ def _print_plan(plan: UpdatePlan) -> None:
             print(f"  - {warning}")
 
 
+def _resolve_sd(raw: str | None) -> Path:
+    """Usa ``--sd`` o busca una única SD conectada."""
+    if raw is not None:
+        return Path(raw)
+    candidates = find_switch_sds()
+    if not candidates:
+        raise MagiaError(
+            "No se detectó ninguna SD de Switch. Conéctala o indica la ruta con --sd."
+        )
+    if len(candidates) > 1:
+        options = ", ".join(str(candidate.root) for candidate in candidates)
+        raise MagiaError(
+            f"Se detectaron varias SD de Switch: {options}. Usa --sd para elegir una."
+        )
+    return candidates[0].root
+
+
 def _parse_components(raw: str) -> tuple[ComponentId, ...]:
     valid = {component.value: component for component in UPDATABLE_COMPONENTS}
     result: list[ComponentId] = []
@@ -189,7 +207,11 @@ def _add_update_arguments(
     *,
     include_json: bool,
 ) -> None:
-    parser.add_argument("--sd", required=True, help="Ruta raíz de la SD (ej. E:\\).")
+    parser.add_argument(
+        "--sd",
+        default=None,
+        help="Ruta raíz de la SD (ej. E:\\). Si se omite, se detecta automáticamente.",
+    )
     parser.add_argument(
         "--components",
         default="atmosphere,hekate,sys-patch",
@@ -241,14 +263,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "detect",
         help="Detecta versiones instaladas sin modificar la SD.",
     )
-    detect_parser.add_argument("--sd", required=True, help="Ruta raíz de la SD (ej. E:\\).")
+    detect_parser.add_argument(
+        "--sd",
+        default=None,
+        help="Ruta raíz de la SD (ej. E:\\). Si se omite, se detecta automáticamente.",
+    )
     detect_parser.add_argument("--json", action="store_true", help="Salida JSON para scripts.")
 
     check_parser = subparsers.add_parser(
         "check",
         help="Compara lo instalado con las últimas releases de GitHub.",
     )
-    check_parser.add_argument("--sd", required=True, help="Ruta raíz de la SD (ej. E:\\).")
+    check_parser.add_argument(
+        "--sd",
+        default=None,
+        help="Ruta raíz de la SD (ej. E:\\). Si se omite, se detecta automáticamente.",
+    )
     check_parser.add_argument(
         "--components",
         default="atmosphere,hekate,sys-patch",
@@ -341,7 +371,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "detect":
         try:
-            snapshot = detect_sd(args.sd)
+            snapshot = detect_sd(_resolve_sd(args.sd))
         except MagiaError as exc:
             print(f"Error: {exc}", file=sys.stderr)
             return 2
@@ -354,7 +384,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "check":
         try:
-            snapshot = detect_sd(args.sd)
+            snapshot = detect_sd(_resolve_sd(args.sd))
             components = _parse_components(args.components)
         except (MagiaError, ValueError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
@@ -389,7 +419,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "plan":
         try:
-            snapshot = detect_sd(args.sd)
+            snapshot = detect_sd(_resolve_sd(args.sd))
             components = _parse_components(args.components)
         except (MagiaError, ValueError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
@@ -430,7 +460,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "apply":
         try:
-            snapshot = detect_sd(args.sd)
+            snapshot = detect_sd(_resolve_sd(args.sd))
             components = _parse_components(args.components)
         except (MagiaError, ValueError) as exc:
             print(f"Error: {exc}", file=sys.stderr)
@@ -452,7 +482,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print("Transacciones incompletas recuperadas:")
                 for backup_dir in recovered:
                     print(f"  - {backup_dir}")
-                snapshot = detect_sd(args.sd)
+                snapshot = detect_sd(_resolve_sd(args.sd))
         except (MagiaError, OSError) as exc:
             print(f"Error al recuperar una transacción incompleta: {exc}", file=sys.stderr)
             return 2
@@ -515,7 +545,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "export":
         try:
-            snapshot = detect_sd(args.sd)
+            snapshot = detect_sd(_resolve_sd(args.sd))
             components = _parse_components(args.components)
         except (MagiaError, ValueError) as exc:
             print(f"Error: {exc}", file=sys.stderr)

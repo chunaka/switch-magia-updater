@@ -8,6 +8,7 @@ from pathlib import Path
 from magia_updater.core.backup import BackupManager, BackupSession
 from magia_updater.core.cache import CacheStore
 from magia_updater.core.detect import detect_sd
+from magia_updater.core.download import ProgressCallback
 from magia_updater.core.export import ExportFormat, ExportKind, ExportResult, export_plan
 from magia_updater.core.identity import get_sd_identity
 from magia_updater.core.installer import ApplyOptions, ApplyResult, UpdateInstaller
@@ -51,6 +52,7 @@ class GuiService:
         *,
         components: tuple[ComponentId, ...] | None = None,
         refresh: bool = False,
+        progress: ProgressCallback | None = None,
     ) -> UpdateSession:
         checks, plan = build_update_plan(
             snapshot,
@@ -61,6 +63,7 @@ class GuiService:
             no_payloads=not self.settings.install_payloads,
             allow_reboot_payload=self.settings.allow_reboot_payload,
             allow_root_payload=self.settings.allow_root_payload,
+            progress=progress,
         )
         return UpdateSession(snapshot=snapshot, checks=checks, plan=plan)
 

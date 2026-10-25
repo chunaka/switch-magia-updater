@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from magia_updater.core.models import ComponentDefinition, ComponentId
+from magia_updater.core.models import ComponentDefinition, ComponentId, SdSnapshot
 
 SYS_PATCH_TID = "420000000000000B"
 
@@ -100,3 +100,15 @@ UPDATABLE_COMPONENTS: tuple[ComponentId, ...] = (
 
 def get_component(component: ComponentId) -> ComponentDefinition:
     return COMPONENTS[component]
+
+
+def recommended_components(snapshot: SdSnapshot) -> tuple[ComponentId, ...]:
+    """Componentes ya instalados que el modo simple debe actualizar.
+
+    No se instalan componentes ausentes sin una acción explícita del usuario.
+    """
+    return tuple(
+        component
+        for component in UPDATABLE_COMPONENTS
+        if (installed := snapshot.components.get(component)) is not None and installed.present
+    )

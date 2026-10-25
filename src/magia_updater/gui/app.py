@@ -3,6 +3,21 @@
 from __future__ import annotations
 
 import sys
+from importlib.resources import files
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from PySide6.QtGui import QIcon
+
+
+def _load_icon() -> QIcon:
+    from PySide6.QtGui import QIcon
+
+    try:
+        path = files("magia_updater").joinpath("assets/magia.ico")
+        return QIcon(str(path))
+    except (FileNotFoundError, ModuleNotFoundError, OSError):
+        return QIcon()
 
 
 def main() -> int:
@@ -15,7 +30,11 @@ def main() -> int:
 
     app = QApplication(sys.argv)
     app.setApplicationName("Magia Updater")
+    app.setApplicationDisplayName("Magia Updater")
     app.setOrganizationName("Magia Updater")
+    icon = _load_icon()
+    if not icon.isNull():
+        app.setWindowIcon(icon)
     window = MainWindow()
     window.show()
     return app.exec()

@@ -1,0 +1,75 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: "pyproject.toml"
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,gui,build]"
+
+      - name: Tests
+        run: python -m pytest -q
+
+      - name: Ruff
+        run: python -m ruff check src tests scripts
+
+      - name: Mypy
+        run: python -m mypy
+
+      - name: Compilar EXE portable
+        run: python -m PyInstaller --noconfirm --clean packaging/windows/MagiaUpdater.spec
+
+      - name: Compilar carpeta portable
+        run: python -m PyInstaller --noconfirm --clean packaging/windows/MagiaUpdaterPortable.spec
+
+      - name: Empaquetar ZIP y checksums
+        shell: pwsh
+        run: |
+          Copy-Item packaging/windows/LEEME.txt dist/MagiaUpdater-portable/LEEME.txt -Force
+          Compress-Archive -Path dist/MagiaUpdater-portable/* `
+            -DestinationPath dist/MagiaUpdater-portable.zip -Force
+          $lines = @()
+          foreach ($file in @("dist/MagiaUpdater.exe", "dist/MagiaUpdater-portable.zip")) {
+            $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
+            $lines += "$hash  $(Split-Path -Leaf $file)"
+          }
+          $lines | Set-Content dist/SHA256SUMS.txt -Encoding ascii
+          Get-Content dist/SHA256SUMS.txt
+
+      - name: Subir artefactos
+        uses: actions/upload-artifact@v4
+        with:
+          name: magia-updater-windows
+          path: |
+            dist/MagiaUpdater.exe
+            dist/MagiaUpdater-portable.zip
+            dist/SHA256SUMS.txt
+
+      - name: Publicar release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/MagiaUpdater.exe
+            dist/MagiaUpdater-portable.zip
+            dist/SHA256SUMS.txt
+            packaging/windows/LEEME.txt
+          generate_release_notes: true

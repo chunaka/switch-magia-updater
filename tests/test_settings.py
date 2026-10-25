@@ -51,6 +51,7 @@ def test_settings_store_round_trip(tmp_path: Path) -> None:
         allow_reboot_payload=True,
         allow_root_payload=True,
         components=(ComponentId.ATMOSPHERE, ComponentId.SYS_PATCH),
+        last_sd_root=tmp_path / "sd",
     )
 
     store.save(settings)
@@ -65,6 +66,13 @@ def test_settings_dict_uses_relative_components() -> None:
 
     assert payload["schema"] == 1
     assert payload["components"] == ["atmosphere", "hekate", "sys-patch"]
+    assert payload["last_sd_root"] is None
+
+
+def test_settings_from_dict_without_last_sd_root_is_compatible() -> None:
+    settings = settings_from_dict({"schema": 1})
+
+    assert settings.last_sd_root is None
 
 
 def test_settings_from_dict_rejects_invalid_schema() -> None:

@@ -8,7 +8,25 @@ Actualizador seguro de CFW para Nintendo Switch. Gestiona **Atmosphère**, **Hek
 > y puede revertir la transacción si algo falla. La GUI permite detectar, planificar, aplicar,
 > exportar paquetes, gestionar backups y cambiar ajustes.
 
-## Requisitos
+## Usuarios (sin Python)
+
+1. Descarga la última versión desde
+   [Releases](https://github.com/chunaka/switch-magia-updater/releases/latest).
+2. Apaga la Switch, saca la SD e insértala en el PC.
+3. Abre `MagiaUpdater.exe`. La app detecta la SD y busca actualizaciones automáticamente.
+4. Pulsa **Actualizar ahora** y confirma.
+
+No hace falta instalar Python ni ejecutar comandos. El ejecutable no está firmado, así que
+SmartScreen o el antivirus pueden mostrar un aviso la primera vez: elige **Más información** >
+**Ejecutar de todas formas** solo si lo descargaste desde la página oficial de releases. Si
+prefieres una carpeta portable, usa `MagiaUpdater-portable.zip`.
+
+El modo fácil actualiza **solo los componentes ya instalados** (Atmosphère, Hekate y
+sys-patch). El botón **Avanzado** permite ver el plan detallado, elegir componentes, exportar
+paquetes, gestionar backups y cambiar ajustes. Antes de escribir se crea un backup en
+`%LOCALAPPDATA%\MagiaUpdater\backups`.
+
+## Requisitos para desarrollo
 
 - Python 3.12 o superior.
 - Windows 10/11 como objetivo principal.
@@ -26,7 +44,14 @@ python -m pip install -e ".[dev,gui]"
 
 ## Uso
 
+`--sd` es opcional: si se omite, la CLI busca una única SD de Switch conectada. Si hay cero o
+varias, muestra un error claro y pide indicar la ruta. La detección es de solo lectura.
+
 ```powershell
+magia detect
+magia check
+magia plan
+
 magia detect --sd E:\
 magia detect --sd E:\ --json
 
@@ -86,15 +111,57 @@ cuyo hash cambió desde el plan se rechazan.
 ## GUI
 
 La GUI es opcional y usa PySide6. Instálala con `python -m pip install -e ".[gui]"` y ejecuta
-`magia-gui` o `python -m magia_updater.gui`. Permite seleccionar la SD, detectar componentes,
-elegir componentes, buscar actualizaciones, revisar el plan, aplicar cambios con confirmación,
-exportar paquetes ZIP/carpeta, consultar o eliminar backups y editar los ajustes. Las tareas
-largas se ejecutan en segundo plano para no bloquear la ventana.
+`magia-gui` o `python -m magia_updater.gui`.
+
+Al abrirse busca la SD automáticamente (y cada 2 segundos si se conecta después), detecta los
+componentes, marca solo los ya instalados y consulta las últimas versiones. Con la SD lista, el
+botón principal hace todo el flujo con una confirmación:
+
+- Si no hay plan, **Buscar actualizaciones** detecta y calcula el plan.
+- Si hay cambios, **Actualizar ahora** crea el backup y aplica el plan.
+- Si todo está al día, muestra **Todo al día**.
+
+El botón **Avanzado** despliega el plan detallado, el registro, la selección de componentes, la
+exportación ZIP/carpeta, la gestión de backups y los ajustes. Las tareas largas se ejecutan en
+segundo plano y las descargas muestran progreso. El diálogo final permite abrir la carpeta del
+backup.
 
 Los ajustes se guardan en `%LOCALAPPDATA%\MagiaUpdater\settings.json` e incluyen las rutas de
 caché, backups y estado, el número de backups a conservar, el espejo de backup en la SD, el modo
-offline, la instalación de payloads y los permisos para `/atmosphere/reboot_payload.bin` y
-`/payload.bin`.
+offline, la instalación de payloads, los permisos para `/atmosphere/reboot_payload.bin` y
+`/payload.bin`, y la última SD usada.
+
+## Compilar el ejecutable
+
+El ejecutable se genera con PyInstaller en Windows:
+
+```powershell
+python -m pip install -e ".[dev,gui,build]"
+.\scripts\build_exe.ps1
+```
+
+El script ejecuta tests, Ruff y Mypy, y genera:
+
+- `dist/MagiaUpdater.exe`: un único archivo, sin consola y con icono.
+- `dist/MagiaUpdater-portable.zip`: carpeta portable con el mismo ejecutable y `LEEME.txt`.
+- `dist/SHA256SUMS.txt`: hashes de los artefactos.
+
+El icono se puede regenerar con `python scripts/make_icon.py`. El ejecutable no está firmado
+digitalmente; es esperable el aviso de SmartScreen. Si se cambia la versión, hay que actualizar
+`pyproject.toml`, `src/magia_updater/__init__.py` y `packaging/windows/version_info.txt`.
+
+## Releases automáticas
+
+`.github/workflows/release.yml` compila y publica los artefactos al subir un tag `v*`:
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+El workflow corre tests, Ruff y Mypy en Windows con Python 3.13, compila el EXE y el ZIP, genera
+los checksums y crea la release con las notas automáticas. `.github/workflows/ci.yml` ejecuta las
+mismas comprobaciones en cada push a `main`/`master` y en pull requests.
 
 ## Instalación y aplicación
 

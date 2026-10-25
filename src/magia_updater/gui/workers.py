@@ -13,6 +13,15 @@ class WorkerSignals(QObject):
     failed = Signal(str)
 
 
+class ProgressBridge(QObject):
+    """Convierte el callback de descarga en una señal segura para la GUI."""
+
+    progress = Signal(int, int)
+
+    def report(self, done: int, total: int) -> None:
+        self.progress.emit(done, total)
+
+
 class FunctionWorker(QRunnable):
     """Ejecuta una función y emite su resultado o el error."""
 

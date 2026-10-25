@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from pathlib import Path
+
 from magia_updater.core.components import (
     ATMOSPHERE,
     HBMENU,
@@ -7,8 +10,10 @@ from magia_updater.core.components import (
     SYS_PATCH,
     UPDATABLE_COMPONENTS,
     get_component,
+    recommended_components,
 )
-from magia_updater.core.models import ComponentId
+from magia_updater.core.detect import detect_sd
+from magia_updater.core.models import ComponentId, InstalledComponent
 
 
 def test_atmosphere_asset_patterns() -> None:
@@ -41,3 +46,27 @@ def test_component_registry() -> None:
     )
     assert HBMENU.informational is True
     assert HEKATE.optional is True
+
+
+def test_recommended_components_includes_only_present(fake_sd: Path) -> None:
+    snapshot = detect_sd(fake_sd)
+
+    assert recommended_components(snapshot) == (
+        ComponentId.ATMOSPHERE,
+        ComponentId.HEKATE,
+        ComponentId.SYS_PATCH,
+    )
+
+
+def test_recommended_components_skips_missing(fake_sd: Path) -> None:
+    snapshot = replace(
+        detect_sd(fake_sd),
+        components={
+            ComponentId.ATMOSPHERE: InstalledComponent(ComponentId.ATMOSPHERE, present=True),
+            ComponentId.HEKATE: InstalledComponent(ComponentId.HEKATE),
+            ComponentId.SYS_PATCH: InstalledComponent(ComponentId.SYS_PATCH),
+            ComponentId.HBMENU: InstalledComponent(ComponentId.HBMENU),
+        },
+    )
+
+    assert recommended_components(snapshot) == (ComponentId.ATMOSPHERE,)

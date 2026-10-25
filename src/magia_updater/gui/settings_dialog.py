@@ -142,6 +142,7 @@ class SettingsDialog(QDialog):
             allow_reboot_payload=self.reboot_payload_check.isChecked(),
             allow_root_payload=self.root_payload_check.isChecked(),
             components=components,
+            last_sd_root=self._settings.last_sd_root,
         )
         self.accept()
 

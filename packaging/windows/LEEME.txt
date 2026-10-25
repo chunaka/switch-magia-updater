@@ -1,0 +1,57 @@
+MAGIA UPDATER 1.0.0
+===================
+
+Actualiza Atmosphère, Hekate y sys-patch en la SD de tu Nintendo Switch sin
+tocar tus configuraciones, sysmodules ni payloads personalizados.
+
+CÓMO USARLO
+-----------
+1. Apaga la Switch y saca la tarjeta microSD.
+2. Insértala en el PC con un lector de tarjetas.
+3. Abre MagiaUpdater.exe.
+4. La app detecta la SD automáticamente y busca las últimas versiones.
+5. Pulsa "Actualizar ahora" y confirma.
+6. Cuando termine, expulsa la SD de forma segura y vuelve a ponerla en la Switch.
+
+No hace falta instalar Python ni ejecutar comandos. No se necesitan permisos de
+administrador.
+
+SI WINDOWS MUESTRA UN AVISO
+---------------------------
+El ejecutable no está firmado digitalmente, así que SmartScreen o el antivirus
+pueden mostrar un aviso la primera vez. Comprueba que lo descargaste desde la
+página oficial de releases del proyecto y elige "Más información" > "Ejecutar
+de todas formas". Si usas la versión portable en ZIP, también puedes probar esa
+alternativa.
+
+SI NO DETECTA LA SD
+-------------------
+- Pulsa "Buscar SD" después de conectarla.
+- Usa "Elegir carpeta..." y selecciona la raíz de la tarjeta (por ejemplo E:\).
+- Algunos lectores aparecen como unidad fija; la app también los revisa.
+- Cierra programas que estén usando la SD.
+
+BACKUPS
+-------
+Antes de escribir, la app guarda una copia de los archivos que va a reemplazar
+en:
+
+  %LOCALAPPDATA%\MagiaUpdater\backups
+
+Desde la ventana de resultado puedes abrir esa carpeta. Los backups se conservan
+aunque cierres la aplicación.
+
+MODO AVANZADO
+-------------
+El botón "Avanzado" muestra el plan detallado, el registro, la selección de
+componentes, la exportación de paquetes, los backups y los ajustes. Los payloads
+protegidos (/payload.bin y /atmosphere/reboot_payload.bin) solo se actualizan si
+los activas expresamente.
+
+SEGURIDAD
+---------
+- No se toca /emuMMC ni /Nintendo.
+- No se sobrescriben /atmosphere/config, /bootloader/hekate_ipl.ini ni /config.
+- Cada escritura se hace con backup, journal y rollback si algo falla.
+
+Licencia MIT.

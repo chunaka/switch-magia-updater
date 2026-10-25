@@ -10,6 +10,7 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from magia_updater.core.devices import SdCandidate  # noqa: E402
 from magia_updater.core.settings import AppSettings  # noqa: E402
 from magia_updater.gui.backups_dialog import BackupsDialog  # noqa: E402
 from magia_updater.gui.export_dialog import ExportDialog  # noqa: E402
@@ -44,6 +45,144 @@ def test_main_window_accepts_detected_snapshot(
     assert app is not None
     assert window.check_button.isEnabled()
     assert window.component_table.rowCount() == 4
+    window.close()
+
+
+def test_main_window_autoselects_single_detected_sd(
+    fake_sd: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    QApplication.instance() or QApplication([])
+    candidate = SdCandidate(
+        root=fake_sd.resolve(),
+        drive_type="extraíble",
+        markers=("atmosphere/package3",),
+    )
+    window = MainWindow(detect_devices=lambda: (candidate,), auto_detect=False)
+    calls: list[bool] = []
+    monkeypatch.setattr(window, "_detect", lambda: calls.append(True))
+
+    window._poll_devices(initial=True)
+
+    assert window.sd_combo.currentText() == str(candidate.root)
+    assert window._pending_auto_check is True
+    assert calls == [True]
+    window.close()
+
+
+def test_main_window_autoselects_replacement_sd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    QApplication.instance() or QApplication([])
+    first = SdCandidate(
+        root=(tmp_path / "first-sd").resolve(),
+        drive_type="extraíble",
+        markers=("atmosphere/package3",),
+    )
+    second = SdCandidate(
+        root=(tmp_path / "second-sd").resolve(),
+        drive_type="extraíble",
+        markers=("atmosphere/package3",),
+    )
+    candidates: tuple[SdCandidate, ...] = (second,)
+    window = MainWindow(detect_devices=lambda: candidates, auto_detect=False)
+    window._last_candidates = (first,)
+    window.sd_combo.setEditText(str(first.root))
+    calls: list[bool] = []
+    monkeypatch.setattr(window, "_detect", lambda: calls.append(True))
+
+    window._poll_devices()
+
+    assert window.sd_combo.currentText() == str(second.root)
+    assert calls == [True]
+    window.close()
+
+
+def test_main_window_keeps_manual_path_when_sd_is_detected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    QApplication.instance() or QApplication([])
+    detected = SdCandidate(
+        root=(tmp_path / "detected-sd").resolve(),
+        drive_type="extraíble",
+        markers=("atmosphere/package3",),
+    )
+    manual = tmp_path / "manual-folder"
+    window = MainWindow(
+        detect_devices=lambda: (detected,),
+        auto_detect=False,
+    )
+    window.sd_combo.setEditText(str(manual))
+    calls: list[bool] = []
+    monkeypatch.setattr(window, "_detect", lambda: calls.append(True))
+
+    window._poll_devices()
+
+    assert window.sd_combo.currentText() == str(manual)
+    assert calls == []
+    window.close()
+
+
+def test_main_window_does_not_guess_with_several_sds(
+    fake_sd: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    QApplication.instance() or QApplication([])
+    second = tmp_path / "second-sd"
+    second.mkdir()
+    candidates = (
+        SdCandidate(root=fake_sd.resolve(), drive_type="extraíble", markers=()),
+        SdCandidate(root=second.resolve(), drive_type="extraíble", markers=()),
+    )
+    window = MainWindow(detect_devices=lambda: candidates, auto_detect=False)
+    calls: list[bool] = []
+    monkeypatch.setattr(window, "_detect", lambda: calls.append(True))
+
+    window._poll_devices(initial=True)
+
+    assert calls == []
+    assert "varias SD" in window.auto_label.text()
+    window.close()
+
+
+def test_main_window_clears_snapshot_when_sd_disconnects(
+    fake_sd: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    QApplication.instance() or QApplication([])
+    candidate = SdCandidate(
+        root=fake_sd.resolve(),
+        drive_type="extraíble",
+        markers=("atmosphere/package3",),
+    )
+    candidates: tuple[SdCandidate, ...] = (candidate,)
+    window = MainWindow(detect_devices=lambda: candidates, auto_detect=False)
+    window._on_detected(window.service.detect(fake_sd))
+    window._auto_root = candidate.root
+    window._last_candidates = (candidate,)
+
+    candidates = ()
+    window._poll_devices()
+
+    assert window.snapshot is None
+    assert window.apply_button.isEnabled() is False
+    window.close()
+
+
+def test_primary_action_checks_when_no_plan_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    QApplication.instance() or QApplication([])
+    window = MainWindow(detect_devices=lambda: (), auto_detect=False)
+    calls: list[str] = []
+    monkeypatch.setattr(window, "_check", lambda: calls.append("check"))
+
+    window._primary_action()
+
+    assert calls == ["check"]
     window.close()
 
 

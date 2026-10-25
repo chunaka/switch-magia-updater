@@ -39,6 +39,7 @@ class AppSettings:
     allow_reboot_payload: bool = False
     allow_root_payload: bool = False
     components: tuple[ComponentId, ...] = field(default_factory=lambda: UPDATABLE_COMPONENTS)
+    last_sd_root: Path | None = None
 
 
 def default_settings_path() -> Path:
@@ -57,6 +58,15 @@ def _bool_value(raw: Mapping[str, Any], key: str, default: bool) -> bool:
     if not isinstance(value, bool):
         raise SettingsError(f"La preferencia {key!r} debe ser booleana.")
     return value
+
+
+def _optional_path_value(raw: Mapping[str, Any], key: str) -> Path | None:
+    value = raw.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise SettingsError(f"La ruta {key!r} debe ser un texto no vacío o null.")
+    return Path(value).expanduser()
 
 
 def _components_value(raw: Mapping[str, Any]) -> tuple[ComponentId, ...]:
@@ -94,6 +104,7 @@ def settings_from_dict(raw: Mapping[str, Any]) -> AppSettings:
         allow_reboot_payload=_bool_value(raw, "allow_reboot_payload", False),
         allow_root_payload=_bool_value(raw, "allow_root_payload", False),
         components=_components_value(raw),
+        last_sd_root=_optional_path_value(raw, "last_sd_root"),
     )
 
 
@@ -114,6 +125,7 @@ def settings_to_dict(settings: AppSettings) -> dict[str, Any]:
         "allow_reboot_payload": settings.allow_reboot_payload,
         "allow_root_payload": settings.allow_root_payload,
         "components": [component.value for component in settings.components],
+        "last_sd_root": str(settings.last_sd_root) if settings.last_sd_root else None,
     }
 
 

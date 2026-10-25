@@ -10,12 +10,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from magia_updater import __version__
 from magia_updater.core.errors import MagiaError
 from magia_updater.core.models import AssetInfo, ComponentId, ReleaseInfo, Version
 
 API_VERSION = "2022-11-28"
 DEFAULT_BASE_URL = "https://api.github.com"
-USER_AGENT = "magia-updater/0.1.0"
+USER_AGENT = f"magia-updater/{__version__}"
 
 
 class GitHubError(MagiaError):
